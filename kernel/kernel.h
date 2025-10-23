@@ -18,7 +18,7 @@
 #define KERNEL_H
 
 #include <stdint.h>
-extern page_table_entry_t* kernel_pml4;
+
 // -------------------------- Hardware Related Definitions --------------------------
 #define VGA_BUFFER 0xB8000          // VGA text mode buffer physical address
 #define VGA_WIDTH 80                // VGA Screen width (in characters)
@@ -37,7 +37,7 @@ typedef struct {
     uint64_t frame : 40;     // Physical frame address (shifted right 12 bits)
     uint64_t reserved2 : 12; // Reserved bits
 } page_table_entry_t;
-
+extern page_table_entry_t* kernel_pml4;
 // --------------------------Function Declaration--------------------------
 // Kernel entry point (DOS25 will jump to here)
 void kernel_main();
