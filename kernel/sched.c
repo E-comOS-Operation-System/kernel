@@ -41,6 +41,21 @@ static task_t* current_task = NULL;
 // Next available PID
 static uint64_t next_pid = 1;
 
+// Clean up task resources
+static void sched_cleanup_task(task_t* task) {
+    if (!task) {
+        return;
+    }
+    
+    // Free page table if it's not the kernel page table
+    if (task->pml4 && task->pml4 != kernel_pml4) {
+        mm_free_page(task->pml4);
+    }
+    
+    // Free task structure
+    mm_free_page(task);
+}
+
 // Helper: Allocate a stack for user-space task (4KB stack)
 static void* sched_alloc_task_stack() {
     void* phys_stack = mm_alloc_page();
@@ -49,6 +64,13 @@ static void* sched_alloc_task_stack() {
     }
     // User stack is in low virtual address (0x1000000 ~ 0x2000000)
     static uint64_t user_stack_virt = 0x1000000;
+    
+    // Check for stack space overflow
+    if (user_stack_virt >= 0x2000000) {
+        mm_free_page(phys_stack);
+        return NULL;
+    }
+    
     void* virt_stack = (void*)user_stack_virt;
     
     // Map stack to user-accessible virtual address
@@ -65,6 +87,16 @@ static void* sched_alloc_task_stack() {
 //   is_user: 1 = user-space task; 0 = kernel-space task
 // Return: PID of new task (0 on failure)
 uint64_t sched_create_task(void (*entry)(), int is_user) {
+    // Input validation
+    if (!entry) {
+        return 0;
+    }
+    
+    // Check for PID overflow
+    if (next_pid == 0) {
+        return 0; // PID overflow
+    }
+    
     // 1. Allocate task structure
     task_t* new_task = (task_t*)mm_alloc_page();
     if (!new_task) {
@@ -77,6 +109,7 @@ uint64_t sched_create_task(void (*entry)(), int is_user) {
     // 2. Create task-specific page table (copy kernel mapping + add user mapping)
     new_task->pml4 = mm_create_table();
     if (!new_task->pml4) {
+        mm_free_page(new_task);
         return 0;
     }
     // Copy kernel PML4 entry (so task can access kernel via virtual address)
@@ -85,10 +118,19 @@ uint64_t sched_create_task(void (*entry)(), int is_user) {
     // 3. Allocate and initialize task stack
     new_task->rsp = (uint64_t)sched_alloc_task_stack();
     if (!new_task->rsp) {
+        mm_free_page(new_task->pml4);
+        mm_free_page(new_task);
         return 0;
     }
     
     // 4. Set up stack for context switch (x86_64 calling convention)
+    // Validate stack pointer before use
+    if (new_task->rsp < 0x1000000 || new_task->rsp > 0x2000000) {
+        mm_free_page(new_task->pml4);
+        mm_free_page(new_task);
+        return 0;
+    }
+    
     // Push dummy RFLAGS (enable interrupts: bit 9 = IF)
     new_task->rsp -= 8;
     *(uint64_t*)new_task->rsp = 0x202; // IF = 1, IOPL = 0
@@ -109,25 +151,33 @@ uint64_t sched_create_task(void (*entry)(), int is_user) {
         sched_queue = new_task;
     } else {
         task_t* temp = sched_queue;
-        while (temp->next) {
+        // Prevent infinite loop with circular reference check
+        int count = 0;
+        while (temp->next && count < 1000) {
             temp = temp->next;
+            count++;
+        }
+        if (count >= 1000) {
+            // Potential circular reference detected
+            sched_cleanup_task(new_task);
+            return 0;
         }
         temp->next = new_task;
     }
     
-    vga_put_char(0, 3, 'T', VGA_COLOR); // Show 'Task X Created'
-    vga_put_char(1, 3, 'a', VGA_COLOR);
-    vga_put_char(2, 3, 's', VGA_COLOR);
-    vga_put_char(3, 3, 'k', VGA_COLOR);
-    vga_put_char(4, 3, ' ', VGA_COLOR);
-    vga_put_char(5, 3, '0' + (new_task->pid % 10), VGA_COLOR); // Show PID (0-9)
-    vga_put_char(6, 3, ' ', VGA_COLOR);
-    vga_put_char(7, 3, 'C', VGA_COLOR);
-    vga_put_char(8, 3, 'r', VGA_COLOR);
-    vga_put_char(9, 3, 'e', VGA_COLOR);
-    vga_put_char(10, 3, 'a', VGA_COLOR);
-    vga_put_char(11, 3, 't', VGA_COLOR);
-    vga_put_char(12, 3, 'e', VGA_COLOR);
+    vga_put_char(0, 3, 'T', 0x07); // Show 'Task X Created'
+    vga_put_char(1, 3, 'a', 0x07);
+    vga_put_char(2, 3, 's', 0x07);
+    vga_put_char(3, 3, 'k', 0x07);
+    vga_put_char(4, 3, ' ', 0x07);
+    vga_put_char(5, 3, '0' + (new_task->pid % 10), 0x07); // Show PID (0-9)
+    vga_put_char(6, 3, ' ', 0x07);
+    vga_put_char(7, 3, 'C', 0x07);
+    vga_put_char(8, 3, 'r', 0x07);
+    vga_put_char(9, 3, 'e', 0x07);
+    vga_put_char(10, 3, 'a', 0x07);
+    vga_put_char(11, 3, 't', 0x07);
+    vga_put_char(12, 3, 'e', 0x07);
     
     return new_task->pid;
 }
@@ -135,7 +185,7 @@ uint64_t sched_create_task(void (*entry)(), int is_user) {
 // Switch to next task in scheduler queue (round-robin)
 // Called via timer interrupt (simplified: manual call for initial version)
 void sched_switch_task() {
-    if (!sched_queue || !current_task) {
+    if (!sched_queue || !current_task || !current_task->next) {
         return;
     }
     
@@ -153,24 +203,28 @@ void sched_switch_task() {
     // Update queue (remove prev task from front, add to end)
     sched_queue = current_task;
     task_t* temp = current_task;
-    while (temp->next) {
+    while (temp && temp->next) {
         temp = temp->next;
     }
-    temp->next = prev_task;
+    if (temp) {
+        temp->next = prev_task;
+    }
     prev_task->next = NULL;
     prev_task->state = TASK_READY;
     current_task->state = TASK_RUNNING;
     
     // 3. Load next task's page table (CR3) and context
-    uint64_t new_pml4_phys = (uint64_t)current_task->pml4 - KERNEL_VIRT_BASE;
-    asm volatile (
-        "mov %0, %%cr3\n"          // Load new page table
-        "mov %1, %%rbp\n"          // Restore RBP
-        "mov %2, %%rsp\n"          // Restore RSP
-        "iretq"                    // Restore RIP/CS/RFLAGS (user-space)
-        : : "r"(new_pml4_phys), "m"(current_task->rbp), "m"(current_task->rsp)
-        : "memory"
-    );
+    if (current_task->pml4) {
+        uint64_t new_pml4_phys = (uint64_t)current_task->pml4 - KERNEL_VIRT_BASE;
+        asm volatile (
+            "mov %0, %%cr3\n"          // Load new page table
+            "mov %1, %%rbp\n"          // Restore RBP
+            "mov %2, %%rsp\n"          // Restore RSP
+            "iretq"                    // Restore RIP/CS/RFLAGS (user-space)
+            : : "r"(new_pml4_phys), "m"(current_task->rbp), "m"(current_task->rsp)
+            : "memory"
+        );
+    }
 }
 
 // Initialize scheduler (set up first kernel task)
@@ -200,17 +254,17 @@ void sched_init() {
                  : "=m"(current_task->rsp), "=m"(current_task->rbp)
                  : : "memory");
     
-    vga_put_char(0, 4, 'S', VGA_COLOR); // Show 'Sched Init OK'
-    vga_put_char(1, 4, 'c', VGA_COLOR);
-    vga_put_char(2, 4, 'h', VGA_COLOR);
-    vga_put_char(3, 4, 'e', VGA_COLOR);
-    vga_put_char(4, 4, 'd', VGA_COLOR);
-    vga_put_char(5, 4, ' ', VGA_COLOR);
-    vga_put_char(6, 4, 'I', VGA_COLOR);
-    vga_put_char(7, 4, 'n', VGA_COLOR);
-    vga_put_char(8, 4, 'i', VGA_COLOR);
-    vga_put_char(9, 4, 't', VGA_COLOR);
-    vga_put_char(10, 4, ' ', VGA_COLOR);
-    vga_put_char(11, 4, 'O', VGA_COLOR);
-    vga_put_char(12, 4, 'K', VGA_COLOR);
+    vga_put_char(0, 4, 'S', 0x07); // Show 'Sched Init OK'
+    vga_put_char(1, 4, 'c', 0x07);
+    vga_put_char(2, 4, 'h', 0x07);
+    vga_put_char(3, 4, 'e', 0x07);
+    vga_put_char(4, 4, 'd', 0x07);
+    vga_put_char(5, 4, ' ', 0x07);
+    vga_put_char(6, 4, 'I', 0x07);
+    vga_put_char(7, 4, 'n', 0x07);
+    vga_put_char(8, 4, 'i', 0x07);
+    vga_put_char(9, 4, 't', 0x07);
+    vga_put_char(10, 4, ' ', 0x07);
+    vga_put_char(11, 4, 'O', 0x07);
+    vga_put_char(12, 4, 'K', 0x07);
 }

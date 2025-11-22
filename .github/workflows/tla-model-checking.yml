@@ -1,0 +1,31 @@
+name: TLA+ Model Checking
+on: [push, pull_request, schedule]
+
+jobs:
+  tla-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup TLA+ Environment
+        uses: tlaplus/toolbox-action@v1
+        with:
+          version: '1.8.0'
+          
+      - name: Verify Scheduler Model
+        run: |
+          java -cp /opt/tla-tools/tla2tools.jar \
+            tlc2.TLC -workers auto -config specs/tla/Scheduler.cfg \
+            specs/tla/Scheduler.tla
+          
+      - name: Verify IPC Model  
+        run: |
+          java -cp /opt/tla-tools/tla2tools.jar \
+            tlc2.TLC -workers auto -config specs/tla/IPC.cfg \
+            specs/tla/IPC.tla
+            
+      - name: Upload Verification Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: tla-results
+          path: specs/tla/*.out
