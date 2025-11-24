@@ -55,3 +55,4 @@ dkms.conf
 *.dwo
 # coverage files
 build/
+.DS_Store
