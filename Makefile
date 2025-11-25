@@ -16,47 +16,64 @@
 
 # E-comOS Makefile
 # Core targets:
+# - make kernel     → Build kernel binary
 # - make image      → Generate base image canuse.img (kernel + minimal bootloader)
-# - make fuckimage  → Generate full distro folder distro-base/ (with user-space services, config templates)
 # - make run        → Test canuse.img with QEMU
 # - make clean      → Clean all build artifacts
 
+# 编译器和工具
+CC = i686-elf-gcc
+AS = i686-elf-as
+LD = i686-elf-gcc
 
-# e-comos-kernel/Makefile (updated)
-ARCH := x86_64
-CC := clang
-LD := ld.lld
-BUILD_DIR := build
-KERNEL_BIN := $(BUILD_DIR)/e-comos-kernel
+# 编译标志
+CFLAGS = -std=gnu99 -ffreestanding -O2 -Wall -Wextra -Iinclude
+LDFLAGS = -ffreestanding -O2 -nostdlib -lgcc
 
-# Compilation flags: 64-bit, no stdlib, include kernel/ directory
-CFLAGS := -std=c11 -ffreestanding -nostdlib -Wall -Werror -m64 -Ikernel
-# Link flags: kernel entry at 0x100000 (matches DOS25 load address)
-LDFLAGS := -Ttext 0x100000 -nostdlib
+# 源文件
+ASM_SOURCES = boot/boot.s
+C_SOURCES = src/kernel/main.c src/kernel/early_init.c src/kernel/debug.c
 
-# Kernel source files (add mm.c and sched.c)
-KERNEL_SRCS := kernel/kernel.c \
-               kernel/mm.c \
-               kernel/sched.c
-# Generate object files (build/%.o from kernel/%.c)
-KERNEL_OBJS := $(patsubst kernel/%.c, $(BUILD_DIR)/%.o, $(KERNEL_SRCS))
+# 目标文件
+OBJ_DIR = build
+ASM_OBJECTS = $(ASM_SOURCES:%.s=$(OBJ_DIR)/%.o)
+C_OBJECTS = $(C_SOURCES:%.c=$(OBJ_DIR)/%.o)
+OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS)
 
-# Compile each .c file to .o
-$(KERNEL_OBJS): $(BUILD_DIR)/%.o: kernel/%.c
-	mkdir -p $(BUILD_DIR)
+# 默认目标
+all: kernel
+
+# 创建构建目录
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)/boot $(OBJ_DIR)/src/kernel
+
+# 编译汇编文件
+$(OBJ_DIR)/%.o: %.s | $(OBJ_DIR)
+	$(AS) $< -o $@
+
+# 编译C文件
+$(OBJ_DIR)/%.o: %.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Link all objects to kernel binary
-$(KERNEL_BIN): $(KERNEL_OBJS)
-	$(LD) $(LDFLAGS) $^ -o $@
-	@echo "✅ Kernel built: $(KERNEL_BIN) (loaded at 0x100000)"
+# 链接内核
+kernel: $(OBJECTS)
+	$(LD) -T arch/x86_64/boot/linker.ld -o $(OBJ_DIR)/kernel.bin $(OBJECTS) $(LDFLAGS)
 
-# Default target: build kernel
-all: $(KERNEL_BIN)
+# 创建ISO镜像
+image: kernel
+	mkdir -p isodir/boot/grub
+	cp $(OBJ_DIR)/kernel.bin isodir/boot/kernel.bin
+	echo 'menuentry "E-comOS" {' > isodir/boot/grub/grub.cfg
+	echo '    multiboot /boot/kernel.bin' >> isodir/boot/grub/grub.cfg
+	echo '}' >> isodir/boot/grub/grub.cfg
+	grub-mkrescue -o canuse.img isodir
 
-# Clean build artifacts
+# 运行QEMU测试
+run: image
+	qemu-system-i386 -cdrom canuse.img
+
+# 清理构建文件
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(OBJ_DIR) isodir canuse.img
 
-# Phony targets (avoid file name conflicts)
-.PHONY: all clean
+.PHONY: all kernel image run clean
