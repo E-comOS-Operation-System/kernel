@@ -56,3 +56,5 @@ dkms.conf
 # coverage files
 build/
 .DS_Store
+*.bin
+*.img

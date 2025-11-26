@@ -23,6 +23,7 @@ SECTIONS
     . = 0x100000;
 
     .text ALIGN(4K) : {
+        kernel_entry.o(.text)
         *(.multiboot)
         *(.text)
     }

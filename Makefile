@@ -22,42 +22,38 @@
 # - make clean      → Clean all build artifacts
 
 # Try cross-compiler first, fallback to system compiler
-CC = $(shell which i686-elf-gcc 2>/dev/null || echo "clang")
-AS = $(shell which i686-elf-as 2>/dev/null || echo "nasm")
-LD = $(shell which i686-elf-ld 2>/dev/null || echo "ld")
+CC = $(shell which x86_64-elf-gcc 2>/dev/null || echo "clang")
+AS = $(shell which x86_64-elf-as 2>/dev/null || echo "nasm")
+LD = $(shell which x86_64-elf-ld 2>/dev/null || echo "ld")
 
-# Compiler flags for microkernel
+# Compiler flags for 16-bit microkernel
 ifeq ($(CC),clang)
-    CFLAGS = -m32 -ffreestanding -fno-builtin -fno-stack-protector \
-             -nostdlib -Wall -Wextra -c -target i386-pc-none-elf
-    LINK_CMD = $(CC) -m32 -nostdlib -ffreestanding
-else
-    CFLAGS = -m32 -ffreestanding -fno-builtin -fno-stack-protector \
+    CFLAGS = -m16 -ffreestanding -fno-builtin -fno-stack-protector \
              -nostdlib -Wall -Wextra -c
-    LINK_CMD = $(CC) -m32 -nostdlib -ffreestanding
+    LINK_CMD = $(CC) -m16 -nostdlib -ffreestanding
+else
+    CFLAGS = -m16 -ffreestanding -fno-builtin -fno-stack-protector \
+             -nostdlib -Wall -Wextra -c
+    LINK_CMD = $(CC) -m16 -nostdlib -ffreestanding
 endif
 
 LDFLAGS = -T arch/x86_64/boot/linker.ld
 ASFLAGS = -f elf32
+BOOT_ASFLAGS = -f elf32
 
 # Source files
 BOOT_ASM = boot/boot.s
-BOOTSECTOR_ASM = boot/bootsector.s
-KERNEL_SOURCES = src/kernel/main.c src/kernel/early_init.c src/kernel/panic.c src/kernel/syscall.c
-IPC_SOURCES = src/ipc/ipc.c
-SCHED_SOURCES = src/sched/sched.c
-MM_SOURCES = src/mm/mm.c
-ARCH_SOURCES = src/arch/x86_64/interrupts.c arch/x86_64/cpu/gdt.c arch/x86_64/mm/paging.c
+BOOTSECTOR_ASM = /Users/ddd/DOS25/src/boot/bootsect.s
+# Use 16-bit microkernel
+MICROKERNEL_DIR = microkernel16
+MICROKERNEL_BIN = $(MICROKERNEL_DIR)/microkernel16.bin
 
 # Object files
 BOOT_OBJ = boot/boot.o
 BOOTSECTOR_BIN = boot/bootsector.bin
 KERNEL_OBJS = $(KERNEL_SOURCES:.c=.o)
-IPC_OBJS = $(IPC_SOURCES:.c=.o)
-SCHED_OBJS = $(SCHED_SOURCES:.c=.o)
-MM_OBJS = $(MM_SOURCES:.c=.o)
-ARCH_OBJS = $(ARCH_SOURCES:.c=.o)
-ALL_OBJS = $(BOOT_OBJ) $(KERNEL_OBJS) $(IPC_OBJS) $(SCHED_OBJS) $(MM_OBJS) $(ARCH_OBJS)
+ASM_OBJS = $(ASM_SOURCES:.s=.o)
+ALL_OBJS = $(ASM_OBJS) $(KERNEL_OBJS)
 
 # Output files
 KERNEL_BIN = ecomos-kernel.bin
@@ -102,12 +98,17 @@ endif
 # Assembly files
 $(BOOT_OBJ): $(BOOT_ASM)
 	@echo "🔧 Assembling boot code..."
-	$(AS) $(ASFLAGS) $< -o $@
+	$(AS) $(BOOT_ASFLAGS) $< -o $@
 
 # C source files
 %.o: %.c
 	@echo "🔧 Compiling $<..."
 	$(CC) $(CFLAGS) -I include $< -o $@
+
+# Assembly source files
+%.o: %.s
+	@echo "🔧 Assembling $<..."
+	$(AS) $(ASFLAGS) $< -o $@
 
 # README Promise 2: make fuckimage (full distro base)
 fuckimage: kernel
@@ -125,15 +126,31 @@ clean:
 debug: CFLAGS += -g -DDEBUG
 debug: $(IMAGE_FILE)
 
+# Create simple test kernel
+simple_kernel.bin: simple_kernel.s
+	$(AS) -f bin $< -o $@
+
+# Create test kernel
+test_kernel16.bin: test_kernel16.s
+	$(AS) -f bin $< -o $@
+
+# Create 16-bit kernel
+kernel16.bin: kernel16.s
+	$(AS) -f bin $< -o $@
+
+# Build microkernel first
+$(MICROKERNEL_BIN):
+	$(MAKE) -C $(MICROKERNEL_DIR)
+
 # Create bootable image
-$(IMAGE_FILE): $(KERNEL_BIN) $(BOOTSECTOR_BIN)
+$(IMAGE_FILE): $(MICROKERNEL_BIN) $(BOOTSECTOR_BIN)
 	@echo "🔨 Creating bootable floppy image..."
 	# Create 1.44MB floppy image
-	dd if=/dev/zero of=$(IMAGE_FILE) bs=1024 count=1440 2>/dev/null
+	dd if=/dev/zero of=$(IMAGE_FILE) bs=512 count=2880 2>/dev/null
 	# Install boot sector
 	dd if=$(BOOTSECTOR_BIN) of=$(IMAGE_FILE) bs=512 count=1 conv=notrunc 2>/dev/null
-	# Copy kernel to image (sector 2 onwards)
-	dd if=$(KERNEL_BIN) of=$(IMAGE_FILE) bs=512 seek=1 conv=notrunc 2>/dev/null
+	# Copy microkernel to image (sector 3 onwards)
+	dd if=$(MICROKERNEL_BIN) of=$(IMAGE_FILE) bs=512 seek=2 count=10 conv=notrunc 2>/dev/null
 	@echo "✅ Bootable image created: $(IMAGE_FILE)"
 
 # Build boot sector
