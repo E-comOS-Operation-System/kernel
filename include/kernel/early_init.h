@@ -1,31 +1,26 @@
 /*
- * E-comOS Microkernel - Early initialization header
- */
+    E-comOS Kernel - A Microkernel for E-comOS
+    Copyright (C) 2025  Saladin5101
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 #ifndef KERNEL_EARLY_INIT_H
 #define KERNEL_EARLY_INIT_H
 
 #include <stdint.h>
 
-// Boot stage enumeration
-typedef enum {
-    BOOT_STAGE_START = 0,
-    BOOT_STAGE_CPU_CHECK,
-    BOOT_STAGE_MEMORY_MAP,
-    BOOT_STAGE_READY
-} boot_stage_t;
-
-// CPU feature bits
-#define CPU_FEATURE_FPU    (1 << 0)
-#define CPU_FEATURE_PSE    (1 << 3)
-#define CPU_FEATURE_TSC    (1 << 4)
-#define CPU_FEATURE_MSR    (1 << 5)
-#define CPU_FEATURE_PAE    (1 << 6)
-#define CPU_FEATURE_APIC   (1 << 9)
-
-// Function declarations
 int early_kernel_init(uint32_t multiboot_magic, uint32_t multiboot_info);
-boot_stage_t get_boot_stage(void);
-uint32_t get_cpu_features(void);
 
 #endif

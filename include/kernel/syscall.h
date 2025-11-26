@@ -16,10 +16,24 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef KERNEL_DEBUG_H
-#define KERNEL_DEBUG_H
+#ifndef KERNEL_SYSCALL_H
+#define KERNEL_SYSCALL_H
 
-void early_debug_init(void);
-void early_debug_puts(const char *str);
+#include <stdint.h>
+
+// E-comOS Microkernel - MINIMAL system calls
+// Only hardware-privileged operations in kernel
+
+#define SYS_IPC_SEND        1  // Cross-address-space message passing
+#define SYS_IPC_RECEIVE     2  // Receive message (blocking)
+#define SYS_THREAD_YIELD    3  // Yield CPU to scheduler
+#define SYS_ADDRESS_MAP     4  // Map physical page (privileged)
+#define SYS_IRQ_WAIT        5  // Wait for hardware interrupt
+
+// Everything else (objects, services, processes) 
+// implemented as USERSPACE services!
+
+// System call handler
+long syscall_handler(uint32_t syscall_num, uint32_t arg1, uint32_t arg2, uint32_t arg3);
 
 #endif

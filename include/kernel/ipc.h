@@ -16,10 +16,20 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef KERNEL_DEBUG_H
-#define KERNEL_DEBUG_H
+#ifndef KERNEL_IPC_H
+#define KERNEL_IPC_H
 
-void early_debug_init(void);
-void early_debug_puts(const char *str);
+#include <stdint.h>
+
+typedef uint32_t thread_id_t;
+
+struct ipc_message {
+    thread_id_t sender;
+    uint32_t size;
+    uint8_t data[256];
+};
+
+int ipc_send(thread_id_t target, struct ipc_message *msg);
+int ipc_receive(struct ipc_message *msg);
 
 #endif

@@ -16,10 +16,28 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef KERNEL_DEBUG_H
-#define KERNEL_DEBUG_H
+#ifndef KERNEL_SCHED_H
+#define KERNEL_SCHED_H
 
-void early_debug_init(void);
-void early_debug_puts(const char *str);
+#include <stdint.h>
+
+typedef enum {
+    THREAD_READY,
+    THREAD_RUNNING,
+    THREAD_BLOCKED,
+    THREAD_TERMINATED
+} thread_state_t;
+
+struct thread {
+    uint32_t id;
+    thread_state_t state;
+    uint32_t stack_ptr;
+    uint32_t priority;
+};
+
+// Scheduler functions
+int sched_create_thread(void (*entry_point)(void));
+void sched_yield(void);
+void sched_schedule(void);
 
 #endif

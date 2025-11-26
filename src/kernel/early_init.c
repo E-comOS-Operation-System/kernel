@@ -1,7 +1,20 @@
 /*
- * E-comOS Microkernel - Early initialization
- * Critical boot-time setup before main kernel services
- */
+    E-comOS Kernel - A Microkernel for E-comOS
+    Copyright (C) 2025  Saladin5101
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 #include <stdint.h>
 #include <kernel/boot.h>
@@ -65,6 +78,7 @@ static void parse_memory_map(struct multiboot_info *mbi) {
     
     // Total memory in KB
     uint32_t total_mem = mem_lower + mem_upper;
+    (void)total_mem; // Suppress unused variable warning
     
     boot_stage = BOOT_STAGE_MEMORY_MAP;
 }

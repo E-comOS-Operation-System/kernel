@@ -16,10 +16,22 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef KERNEL_DEBUG_H
-#define KERNEL_DEBUG_H
+#include <kernel/debug.h>
 
-void early_debug_init(void);
-void early_debug_puts(const char *str);
+void kernel_panic(const char *message) {
+    (void)message; // Suppress unused parameter warning
+    
+    // Disable interrupts
+    __asm__ volatile ("cli");
+    
+    // TODO: Display panic message
+    // For now, just halt
+    while (1) {
+        __asm__ volatile ("hlt");
+    }
+}
 
-#endif
+void kernel_log(const char *message) {
+    (void)message; // Suppress unused parameter warning
+    // TODO: Implement kernel logging
+}

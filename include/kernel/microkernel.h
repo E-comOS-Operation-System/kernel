@@ -16,10 +16,33 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef KERNEL_DEBUG_H
-#define KERNEL_DEBUG_H
+#ifndef KERNEL_MICROKERNEL_H
+#define KERNEL_MICROKERNEL_H
 
-void early_debug_init(void);
-void early_debug_puts(const char *str);
+#include <stdint.h>
+
+// ONLY 4 things in microkernel:
+
+// 1. Address space management (privileged)
+typedef uint32_t address_space_t;
+address_space_t as_create(void);
+int as_map_page(address_space_t as, uint32_t vaddr, uint32_t paddr, uint32_t flags);
+
+// 2. Thread scheduling (minimal)
+typedef uint32_t thread_t;
+thread_t thread_create(address_space_t as, void *entry);
+void thread_yield(void);
+
+// 3. IPC primitives (cross-address-space)
+struct ipc_msg {
+    uint32_t sender;
+    uint32_t size;
+    uint8_t data[256];
+};
+int ipc_send(thread_t target, struct ipc_msg *msg);
+int ipc_receive(struct ipc_msg *msg);
+
+// 4. Interrupt handling (privileged)
+int irq_wait(uint32_t irq_num);
 
 #endif

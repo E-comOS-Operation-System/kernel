@@ -16,10 +16,32 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef KERNEL_DEBUG_H
-#define KERNEL_DEBUG_H
+#include <kernel/ipc.h>
 
-void early_debug_init(void);
-void early_debug_puts(const char *str);
+#define MAX_IPC_QUEUE 32
 
-#endif
+static struct ipc_message ipc_queue[MAX_IPC_QUEUE];
+static uint32_t queue_head = 0;
+static uint32_t queue_tail = 0;
+
+int ipc_send(thread_id_t target, struct ipc_message *msg) {
+    uint32_t next_tail = (queue_tail + 1) % MAX_IPC_QUEUE;
+    if (next_tail == queue_head) {
+        return -1; // Queue full
+    }
+    
+    ipc_queue[queue_tail] = *msg;
+    ipc_queue[queue_tail].sender = target; // Set sender ID
+    queue_tail = next_tail;
+    return 0;
+}
+
+int ipc_receive(struct ipc_message *msg) {
+    if (queue_head == queue_tail) {
+        return -1; // No messages
+    }
+    
+    *msg = ipc_queue[queue_head];
+    queue_head = (queue_head + 1) % MAX_IPC_QUEUE;
+    return 0;
+}

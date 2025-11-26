@@ -16,10 +16,22 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef KERNEL_DEBUG_H
-#define KERNEL_DEBUG_H
+#ifndef KERNEL_MM_H
+#define KERNEL_MM_H
 
-void early_debug_init(void);
-void early_debug_puts(const char *str);
+#include <stdint.h>
+
+#define PAGE_SIZE 4096
+
+// Memory mapping flags
+#define MM_FLAG_READ    (1 << 0)
+#define MM_FLAG_WRITE   (1 << 1)
+#define MM_FLAG_EXEC    (1 << 2)
+#define MM_FLAG_USER    (1 << 3)
+
+// Memory management functions
+void* mm_alloc_page(void);
+void mm_free_page(void* page);
+int mm_map_page(uint32_t virtual_addr, uint32_t physical_addr, uint32_t flags);
 
 #endif

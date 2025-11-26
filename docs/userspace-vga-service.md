@@ -1,28 +1,28 @@
-# 用户态VGA服务设计
+# Userspace VGA Service Design
 
-## 概述
-VGA显示驱动作为独立的用户态服务运行，通过IPC为其他程序提供显示功能。
+## Overview
+VGA display driver runs as an independent userspace service, providing display functionality to other programs through IPC.
 
-## 架构
+## Architecture
 ```
-应用程序 → IPC → VGA服务 → 内核映射 → VGA硬件
+Applications → IPC → VGA Service → Kernel Mapping → VGA Hardware
 ```
 
-## VGA服务功能
-- 文本模式显示
-- 字符输出和格式化
-- 屏幕清除和滚动
-- 颜色控制
+## VGA Service Features
+- Text mode display
+- Character output and formatting
+- Screen clearing and scrolling
+- Color control
 
-## 系统调用接口
-- `SYS_DISPLAY_MAP_FRAMEBUFFER`: 映射VGA内存到用户空间
-- `SYS_DISPLAY_REGISTER_SERVICE`: 注册显示服务
-- `SYS_DISPLAY_UNREGISTER_SERVICE`: 注销显示服务
+## System Call Interface
+- `SYS_DISPLAY_MAP_FRAMEBUFFER`: Map VGA memory to userspace
+- `SYS_DISPLAY_REGISTER_SERVICE`: Register display service
+- `SYS_DISPLAY_UNREGISTER_SERVICE`: Unregister display service
 
-## 用户态VGA服务示例代码
+## Userspace VGA Service Example Code
 
 ```c
-// vga_service.c - 独立仓库中的用户态VGA驱动
+// vga_service.c - Userspace VGA driver in separate repository
 #include <stdint.h>
 #include <kernel/api/display.h>
 
@@ -35,11 +35,11 @@ static size_t cursor_x = 0;
 static size_t cursor_y = 0;
 
 int vga_service_init(void) {
-    // 通过系统调用映射VGA内存
+    // Map VGA memory through system call
     vga_buffer = (uint16_t*)syscall(SYS_DISPLAY_MAP_FRAMEBUFFER, VGA_MEMORY, 4000);
     if (!vga_buffer) return -1;
     
-    // 注册显示服务
+    // Register display service
     struct display_service_info info = {
         .capabilities = DISPLAY_CAP_TEXT_MODE | DISPLAY_CAP_COLOR,
         .width = VGA_WIDTH,
@@ -66,7 +66,7 @@ void vga_putchar(char c, uint8_t color) {
     }
     
     if (cursor_y >= VGA_HEIGHT) {
-        // 滚动屏幕
+        // Scroll screen
         for (size_t i = 0; i < (VGA_HEIGHT - 1) * VGA_WIDTH; i++) {
             vga_buffer[i] = vga_buffer[i + VGA_WIDTH];
         }
@@ -74,17 +74,17 @@ void vga_putchar(char c, uint8_t color) {
     }
 }
 
-// IPC消息处理循环
+// IPC message processing loop
 void vga_service_main(void) {
     while (1) {
-        // 接收IPC消息
-        // 处理显示请求
-        // 发送响应
+        // Receive IPC messages
+        // Process display requests
+        // Send responses
     }
 }
 ```
 
-## 部署
-1. 将VGA服务编译为独立的用户态程序
-2. 内核启动后自动加载VGA服务
-3. 其他程序通过IPC与VGA服务通信
+## Deployment
+1. Compile VGA service as independent userspace program
+2. Automatically load VGA service after kernel boot
+3. Other programs communicate with VGA service through IPC
