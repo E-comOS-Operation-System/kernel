@@ -20,33 +20,33 @@
 # - make image      → Generate base image canuse.img (kernel + minimal bootloader)
 # - make run        → Test canuse.img with QEMU
 # - make clean      → Clean all build artifacts
-
+# - make fuckimage  → To create a folder to make your relase
 # Try cross-compiler first, fallback to system compiler
 CC = $(shell which x86_64-elf-gcc 2>/dev/null || echo "clang")
 AS = $(shell which x86_64-elf-as 2>/dev/null || echo "nasm")
 LD = $(shell which x86_64-elf-ld 2>/dev/null || echo "ld")
+NASM = $(shell which nasm 2>/dev/null || echo "nasm")
 
-# Compiler flags for 16-bit microkernel
+# Compiler flags for 64-bit microkernel
 ifeq ($(CC),clang)
-    CFLAGS = -m16 -ffreestanding -fno-builtin -fno-stack-protector \
-             -nostdlib -Wall -Wextra -c
-    LINK_CMD = $(CC) -m16 -nostdlib -ffreestanding
+    CFLAGS = -m64 -ffreestanding -fno-builtin -fno-stack-protector \
+             -nostdlib -Wall -Wextra -c -mcmodel=large
+    LINK_CMD = $(CC) -m64 -nostdlib -ffreestanding
 else
-    CFLAGS = -m16 -ffreestanding -fno-builtin -fno-stack-protector \
-             -nostdlib -Wall -Wextra -c
-    LINK_CMD = $(CC) -m16 -nostdlib -ffreestanding
+    CFLAGS = -m64 -ffreestanding -fno-builtin -fno-stack-protector \
+             -nostdlib -Wall -Wextra -c -mcmodel=large
+    LINK_CMD = $(CC) -m64 -nostdlib -ffreestanding
 endif
 
 LDFLAGS = -T arch/x86_64/boot/linker.ld
-ASFLAGS = -f elf32
-BOOT_ASFLAGS = -f elf32
+ASFLAGS = --64
+BOOT_ASFLAGS = --32
+NASM_BOOT_FLAGS = -f bin
 
 # Source files
-BOOT_ASM = boot/boot.s
+KERNEL_SOURCES = src/kernel/main.c src/ipc/ipc.c src/mm/mm.c src/sched/sched.c src/kernel/syscall.c
+ASM_SOURCES = kernel_entry.s
 BOOTSECTOR_ASM = /Users/ddd/DOS25/src/boot/bootsect.s
-# Use 16-bit microkernel
-MICROKERNEL_DIR = microkernel16
-MICROKERNEL_BIN = $(MICROKERNEL_DIR)/microkernel16.bin
 
 # Object files
 BOOT_OBJ = boot/boot.o
@@ -138,25 +138,22 @@ test_kernel16.bin: test_kernel16.s
 kernel16.bin: kernel16.s
 	$(AS) -f bin $< -o $@
 
-# Build microkernel first
-$(MICROKERNEL_BIN):
-	$(MAKE) -C $(MICROKERNEL_DIR)
-
 # Create bootable image
-$(IMAGE_FILE): $(MICROKERNEL_BIN) $(BOOTSECTOR_BIN)
+$(IMAGE_FILE): $(KERNEL_BIN) $(BOOTSECTOR_BIN)
 	@echo "🔨 Creating bootable floppy image..."
 	# Create 1.44MB floppy image
 	dd if=/dev/zero of=$(IMAGE_FILE) bs=512 count=2880 2>/dev/null
 	# Install boot sector
 	dd if=$(BOOTSECTOR_BIN) of=$(IMAGE_FILE) bs=512 count=1 conv=notrunc 2>/dev/null
-	# Copy microkernel to image (sector 3 onwards)
-	dd if=$(MICROKERNEL_BIN) of=$(IMAGE_FILE) bs=512 seek=2 count=10 conv=notrunc 2>/dev/null
+	# Copy kernel to image (sector 3 onwards)
+	dd if=$(KERNEL_BIN) of=$(IMAGE_FILE) bs=512 seek=2 count=10 conv=notrunc 2>/dev/null
 	@echo "✅ Bootable image created: $(IMAGE_FILE)"
 
 # Build boot sector
 $(BOOTSECTOR_BIN): $(BOOTSECTOR_ASM)
 	@echo "🔧 Building boot sector..."
-	$(AS) -f bin $< -o $@
+	@mkdir -p boot
+	$(NASM) $(NASM_BOOT_FLAGS) $< -o $@
 
 # Test the image
 run: $(IMAGE_FILE)
@@ -168,7 +165,7 @@ info:
 	@echo "📊 E-comOS Microkernel Info:"
 	@echo "   Target size: < 32KB"
 	@echo "   System calls: 5"
-	@echo "   Philosophy: 万物皆服务、万物皆对象、万物皆进程"
+	@echo "   Philosophy: Everything is service , everything is objects , everything is process"
 	@if [ -f $(KERNEL_BIN) ]; then \
 		echo "   Current size: $$(stat -f%z $(KERNEL_BIN) 2>/dev/null || stat -c%s $(KERNEL_BIN)) bytes"; \
 	fi

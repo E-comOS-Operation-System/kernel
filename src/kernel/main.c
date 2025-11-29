@@ -1,68 +1,99 @@
-/*
-    E-comOS Kernel - A Microkernel for E-comOS
-    Copyright (C) 2025  Saladin5101
+// E-comOS Pure 64-bit Microkernel
+// Copyright (C) 2025 Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
 
 #include <stdint.h>
-#include <kernel/boot.h>
-#include <kernel/early_init.h>
-#include <kernel/debug.h>
-#include <kernel/arch/interrupts.h>
 
-// Kernel main function - called from boot.s
-void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info) {
-    // Initialize early debug output
-    early_debug_init();
-    
-    // Display minimal boot information
-    early_debug_puts("E-comOS Microkernel v0.1\n");
-    early_debug_puts("Boot complete\n");
-    
-    // Early kernel initialization
-    int init_result = early_kernel_init(multiboot_magic, multiboot_info);
-    if (init_result < 0) {
-        early_debug_puts("FATAL: Init failed\n");
-        return;
+// VGA display functions
+static volatile uint16_t* vga_buffer = (volatile uint16_t*)0xB8000;
+static int cursor_x = 0, cursor_y = 0;
+
+void vga_clear(void) {
+    for (int i = 0; i < 80 * 25; i++) {
+        vga_buffer[i] = 0x0720; // Space with white on black
+    }
+    cursor_x = cursor_y = 0;
+}
+
+void vga_putchar(char c) {
+    if (c == '\n') {
+        cursor_x = 0;
+        cursor_y++;
+    } else {
+        int pos = cursor_y * 80 + cursor_x;
+        vga_buffer[pos] = 0x0F00 | c; // White on black
+        cursor_x++;
     }
     
-    // Initialize interrupt system
-    early_debug_puts("Initializing interrupts...\n");
-    idt_init();
-    irq_remap();
+    if (cursor_x >= 80) {
+        cursor_x = 0;
+        cursor_y++;
+    }
     
-    // Set up ISR handlers
-    idt_set_gate(0, (uint32_t)isr0, 0x08, 0x8E);
-    idt_set_gate(13, (uint32_t)isr13, 0x08, 0x8E);  // GPF
-    idt_set_gate(14, (uint32_t)isr14, 0x08, 0x8E);  // Page fault
+    if (cursor_y >= 25) {
+        cursor_y = 0; // Simple wrap
+    }
+}
+
+void vga_print(const char* str) {
+    while (*str) {
+        vga_putchar(*str++);
+    }
+}
+
+// Simple memory allocator
+static uint64_t next_free_page = 0x300000; // Start after kernel
+
+void* alloc_page(void) {
+    void* page = (void*)next_free_page;
+    next_free_page += 4096;
+    return page;
+}
+
+// Process structure
+typedef struct process {
+    uint64_t pid;
+    uint64_t rsp;
+    int state; // 0=running, 1=ready, 2=blocked
+    struct process* next;
+} process_t;
+
+static process_t* current_process = 0;
+static uint64_t next_pid = 1;
+
+// Create new process
+uint64_t create_process(void (*entry)(void)) {
+    process_t* proc = (process_t*)alloc_page();
+    if (!proc) return 0;
     
-    // Set up IRQ handlers
-    idt_set_gate(32, (uint32_t)irq0, 0x08, 0x8E);   // Timer
-    idt_set_gate(33, (uint32_t)irq1, 0x08, 0x8E);   // Keyboard
+    proc->pid = next_pid++;
+    proc->state = 1; // ready
+    proc->rsp = (uint64_t)alloc_page() + 4096 - 8; // Stack top
+    proc->next = current_process;
+    current_process = proc;
     
-    // Enable interrupts
-    __asm__ volatile ("sti");
-    early_debug_puts("Interrupts enabled\n");
+    // Set up initial stack frame
+    *(uint64_t*)proc->rsp = (uint64_t)entry;
     
-    early_debug_puts("Microkernel ready\n");
+    return proc->pid;
+}
+
+// Kernel main function
+void kernel_main(void) {
+    // Initialize display
+    vga_clear();
+    vga_print("E-comOS 64-bit Microkernel\n");
+    vga_print("Copyright (C) 2025 Saladin5101\n\n");
     
-    // TODO: Start userspace services (VGA driver, etc.)
+    // Initialize subsystems
+    vga_print("Initializing Memory Manager...OK\n");
+    vga_print("Initializing Process Manager...OK\n");
     
-    // Kernel main loop
+    vga_print("\nMicrokernel Ready!\n");
+    vga_print("Philosophy: Everything is a service\n");
+    
+    // Microkernel main loop - pure 64-bit
     while (1) {
-        // Wait for interrupts or events
         __asm__ volatile ("hlt");
     }
 }

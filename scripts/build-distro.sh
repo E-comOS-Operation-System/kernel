@@ -6,7 +6,7 @@
 set -e
 
 DISTRO_DIR="distro-base"
-KERNEL_BIN="build/kernel.bin"
+KERNEL_BIN="ecomos-kernel.bin"
 
 echo "🚀 Building E-comOS Distribution..."
 
@@ -19,7 +19,7 @@ echo "📦 Building kernel..."
 make kernel
 
 # Copy kernel
-cp "$KERNEL_BIN" "$DISTRO_DIR/boot/"
+cp "$KERNEL_BIN" "$DISTRO_DIR/boot/kernel.bin"
 
 # Clone userspace components using config
 echo "📥 Cloning userspace components..."
