@@ -50,7 +50,7 @@ BOOTSECTOR_ASM = /Users/ddd/DOS25/src/boot/bootsect.s
 
 # Object files
 BOOT_OBJ = boot/boot.o
-BOOTSECTOR_BIN = boot/bootsector.bin
+BOOTSECTOR_BIN = dos25-release.bin
 KERNEL_OBJS = $(KERNEL_SOURCES:.c=.o)
 ASM_OBJS = $(ASM_SOURCES:.s=.o)
 ALL_OBJS = $(ASM_OBJS) $(KERNEL_OBJS)
@@ -58,9 +58,21 @@ ALL_OBJS = $(ASM_OBJS) $(KERNEL_OBJS)
 # Output files
 KERNEL_BIN = ecomos-kernel.bin
 IMAGE_FILE = canuse.img
+ISO_FILE = ecomos.iso
+
+# Directories
+SRC_DIR = src
+BUILD_DIR = build
+ISO_DIR = iso
+BOOT_DIR = $(ISO_DIR)/boot
+
+# Files
+KERNEL_ELF = $(BUILD_DIR)/kernel.elf
+KERNEL_BIN = $(BUILD_DIR)/kernel.bin
+ISO_FILE = canuse.img
 
 # Default target
-all: $(IMAGE_FILE)
+all: $(ISO_FILE)
 
 # README Promise 1: make image (basic kernel + minimal bootloader)
 image: $(IMAGE_FILE)
@@ -158,7 +170,7 @@ $(BOOTSECTOR_BIN): $(BOOTSECTOR_ASM)
 # Test the image
 run: $(IMAGE_FILE)
 	@echo "🧪 Testing E-comOS in QEMU..."
-	qemu-system-i386 -fda $(IMAGE_FILE) -serial stdio 
+	qemu-system-i386 -drive file=$(IMAGE_FILE),format=raw
 
 # Show kernel info
 info:
