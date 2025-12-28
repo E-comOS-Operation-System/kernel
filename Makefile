@@ -158,7 +158,7 @@ $(BOOTSECTOR_BIN): $(BOOTSECTOR_ASM)
 # Test the image
 run: $(IMAGE_FILE)
 	@echo "🧪 Testing E-comOS in QEMU..."
-	qemu-system-i386 -fda $(IMAGE_FILE) -serial stdio
+	qemu-system-i386 -fda $(IMAGE_FILE) -serial stdio 
 
 # Show kernel info
 info:
