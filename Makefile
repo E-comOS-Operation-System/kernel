@@ -46,17 +46,18 @@ NASM_BOOT_FLAGS = -f bin
 # Source files
 KERNEL_SOURCES = src/kernel/main.c src/ipc/ipc.c src/mm/mm.c src/sched/sched.c src/kernel/syscall.c
 ASM_SOURCES = kernel_entry.s
-BOOTSECTOR_ASM = /Users/ddd/DOS25/src/boot/bootsect.s
+STAGE1_SRC = /Users/ddd/DOS25/src/boot/bootsect.s
+STAGE2_SRC = /Users/ddd/DOS25/src/boot/bootsect-2nd.s
 
 # Object files
 BOOT_OBJ = boot/boot.o
-BOOTSECTOR_BIN = dos25-release.bin
+STAGE1_BIN = dos25-release.bin
+STAGE2_BIN = dos25-stage2.bin
 KERNEL_OBJS = $(KERNEL_SOURCES:.c=.o)
 ASM_OBJS = $(ASM_SOURCES:.s=.o)
 ALL_OBJS = $(ASM_OBJS) $(KERNEL_OBJS)
 
 # Output files
-KERNEL_BIN = ecomos-kernel.bin
 IMAGE_FILE = canuse.img
 ISO_FILE = ecomos.iso
 
@@ -72,7 +73,7 @@ KERNEL_BIN = $(BUILD_DIR)/kernel.bin
 ISO_FILE = canuse.img
 
 # Default target
-all: $(ISO_FILE)
+all: $(IMAGE_FILE)
 
 # README Promise 1: make image (basic kernel + minimal bootloader)
 image: $(IMAGE_FILE)
@@ -98,7 +99,6 @@ $(KERNEL_BIN): $(ALL_OBJS)
 	@echo "   Compiler: $(CC)"
 ifeq ($(CC),clang)
 	@echo "⚠️  Creating object archive for macOS (testing only)"
-	# Create archive for testing - not bootable but validates code
 	ar rcs $(KERNEL_BIN) $(filter-out boot/boot.o,$(ALL_OBJS))
 	@echo "📝 Note: This creates an archive, not a bootable kernel"
 	@echo "    Use a cross-compiler for actual bootable kernel"
@@ -122,6 +122,29 @@ $(BOOT_OBJ): $(BOOT_ASM)
 	@echo "🔧 Assembling $<..."
 	$(AS) $(ASFLAGS) $< -o $@
 
+# Build boot sectors
+$(STAGE1_BIN): $(STAGE1_SRC)
+	@echo "🔧 Building stage1 (MBR)..."
+	$(NASM) $(NASM_BOOT_FLAGS) $< -o $@
+	@size=$$(wc -c < $@); \
+	echo "  Stage1 size: $$size bytes"; \
+	if [ $$size -ne 512 ]; then \
+		echo "  ⚠️  Warning: Stage1 should be 512 bytes"; \
+	fi
+
+$(STAGE2_BIN): $(STAGE2_SRC)
+	@echo "🔧 Building stage2 (13 sectors)..."
+	$(NASM) $(NASM_BOOT_FLAGS) $< -o $@
+	@size=$$(wc -c < $@); \
+	echo "  Stage2 size: $$size bytes"; \
+	if [ $$size -ne 6656 ]; then \
+		echo "  ⚠️  Adjusting stage2 to 6656 bytes..."; \
+		dd if=/dev/zero of=temp-stage2.bin bs=1 count=6656 2>/dev/null; \
+		dd if=$@ of=temp-stage2.bin conv=notrunc 2>/dev/null; \
+		mv temp-stage2.bin $@; \
+		echo "  Adjusted stage2 size: $$(wc -c < $@) bytes"; \
+	fi
+
 # README Promise 2: make fuckimage (full distro base)
 fuckimage: kernel
 	@echo "🚀 Creating E-comOS distro base..."
@@ -132,7 +155,7 @@ fuckimage: kernel
 # Development targets
 clean:
 	@echo "🧹 Cleaning build files..."
-	rm -f $(ALL_OBJS) $(KERNEL_BIN) $(IMAGE_FILE) $(BOOTSECTOR_BIN) kernel-info.txt
+	rm -f $(ALL_OBJS) $(KERNEL_BIN) $(IMAGE_FILE) $(STAGE1_BIN) $(STAGE2_BIN) kernel-info.txt temp-stage2.bin
 	rm -rf distro-base temp-repos
 
 debug: CFLAGS += -g -DDEBUG
@@ -151,26 +174,47 @@ kernel16.bin: kernel16.s
 	$(AS) -f bin $< -o $@
 
 # Create bootable image
-$(IMAGE_FILE): $(KERNEL_BIN) $(BOOTSECTOR_BIN)
+$(IMAGE_FILE): $(KERNEL_BIN) $(STAGE1_BIN) $(STAGE2_BIN)
 	@echo "🔨 Creating bootable floppy image..."
+	@echo "  Using:"
+	@echo "    Stage1: $(STAGE1_BIN)"
+	@echo "    Stage2: $(STAGE2_BIN)"
+	@echo "    Kernel: $(KERNEL_BIN)"
+	
 	# Create 1.44MB floppy image
 	dd if=/dev/zero of=$(IMAGE_FILE) bs=512 count=2880 2>/dev/null
-	# Install boot sector
-	dd if=$(BOOTSECTOR_BIN) of=$(IMAGE_FILE) bs=512 count=1 conv=notrunc 2>/dev/null
-	# Copy kernel to image (sector 3 onwards)
-	dd if=$(KERNEL_BIN) of=$(IMAGE_FILE) bs=512 seek=2 count=10 conv=notrunc 2>/dev/null
+	
+	# Install boot sector (Stage1)
+	dd if=$(STAGE1_BIN) of=$(IMAGE_FILE) bs=512 count=1 conv=notrunc 2>/dev/null
+	@echo "  ✓ Stage1 written to sector 0"
+	
+	# Install stage2 (13 sectors starting at sector 1)
+	dd if=$(STAGE2_BIN) of=$(IMAGE_FILE) bs=512 seek=1 conv=notrunc 2>/dev/null
+	@echo "  ✓ Stage2 written to sectors 1-13"
+	
+	# Copy kernel to image (starting at sector 14)
+	dd if=$(KERNEL_BIN) of=$(IMAGE_FILE) bs=512 seek=14 count=10 conv=notrunc 2>/dev/null
+	@echo "  ✓ Kernel written to sectors 14-23"
+	
 	@echo "✅ Bootable image created: $(IMAGE_FILE)"
-
-# Build boot sector
-$(BOOTSECTOR_BIN): $(BOOTSECTOR_ASM)
-	@echo "🔧 Building boot sector..."
-	@mkdir -p boot
-	$(NASM) $(NASM_BOOT_FLAGS) $< -o $@
+	@echo "  Total size: $$(stat -f%z $(IMAGE_FILE) 2>/dev/null || stat -c%s $(IMAGE_FILE)) bytes"
 
 # Test the image
 run: $(IMAGE_FILE)
 	@echo "🧪 Testing E-comOS in QEMU..."
-	qemu-system-i386 -drive file=$(IMAGE_FILE),format=raw
+	@echo "  Stage1: $$(xxd -l 512 $(STAGE1_BIN) | grep -o "55 aa" | wc -l) boot signature"
+	@echo "  Stage2: $$(wc -c < $(STAGE2_BIN)) bytes"
+	@echo "  Image:  $$(wc -c < $(IMAGE_FILE)) bytes"
+	qemu-system-x86_64 -drive file=$(IMAGE_FILE),format=raw -d int,cpu -no-reboot
+
+# Quick test of boot process
+boottest: $(STAGE1_BIN) $(STAGE2_BIN)
+	@echo "🧪 Testing boot process only..."
+	dd if=/dev/zero of=boottest.img bs=512 count=2880 2>/dev/null
+	dd if=$(STAGE1_BIN) of=boottest.img conv=notrunc 2>/dev/null
+	dd if=$(STAGE2_BIN) of=boottest.img bs=512 seek=1 conv=notrunc 2>/dev/null
+	@echo "  Boot test image created: boottest.img"
+	qemu-system-x86_64 -drive file=boottest.img,format=raw
 
 # Show kernel info
 info:
@@ -181,5 +225,14 @@ info:
 	@if [ -f $(KERNEL_BIN) ]; then \
 		echo "   Current size: $$(stat -f%z $(KERNEL_BIN) 2>/dev/null || stat -c%s $(KERNEL_BIN)) bytes"; \
 	fi
+	@if [ -f $(STAGE1_BIN) ]; then \
+		echo "   Stage1: $$(wc -c < $(STAGE1_BIN)) bytes"; \
+	fi
+	@if [ -f $(STAGE2_BIN) ]; then \
+		echo "   Stage2: $$(wc -c < $(STAGE2_BIN)) bytes"; \
+	fi
+	@if [ -f $(IMAGE_FILE) ]; then \
+		echo "   Image: $$(wc -c < $(IMAGE_FILE)) bytes"; \
+	fi
 
-.PHONY: all image kernel fuckimage clean debug run kernel-info info
+.PHONY: all image kernel fuckimage clean debug run kernel-info info boottest
