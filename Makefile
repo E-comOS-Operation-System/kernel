@@ -205,7 +205,7 @@ run: $(IMAGE_FILE)
 	@echo "  Stage1: $$(xxd -l 512 $(STAGE1_BIN) | grep -o "55 aa" | wc -l) boot signature"
 	@echo "  Stage2: $$(wc -c < $(STAGE2_BIN)) bytes"
 	@echo "  Image:  $$(wc -c < $(IMAGE_FILE)) bytes"
-	qemu-system-x86_64 -drive file=$(IMAGE_FILE),format=raw -d int,cpu -no-reboot
+	qemu-system-x86_64 -drive file=$(IMAGE_FILE),format=raw -d int,cpu -no-reboot --monitor stdio
 
 # Quick test of boot process
 boottest: $(STAGE1_BIN) $(STAGE2_BIN)
