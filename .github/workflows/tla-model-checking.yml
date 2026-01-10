@@ -7,18 +7,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup TLA+ Environment
-        uses: tlaplus-community/tlaplus-action@v1
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          
+      - name: Download TLA+ Tools
+        run: |
+          wget -O tla2tools.jar https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
           
       - name: Verify Scheduler Model
         run: |
-          java -cp /opt/tla-tools/tla2tools.jar \
+          java -cp tla2tools.jar \
             tlc2.TLC -workers auto -config specs/tla/Scheduler.cfg \
             specs/tla/Scheduler.tla
           
       - name: Verify IPC Model  
         run: |
-          java -cp /opt/tla-tools/tla2tools.jar \
+          java -cp tla2tools.jar \
             tlc2.TLC -workers auto -config specs/tla/IPC.cfg \
             specs/tla/IPC.tla
             
