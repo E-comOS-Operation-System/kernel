@@ -8,9 +8,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup TLA+ Environment
-        uses: tlaplus/toolbox-action@v1
-        with:
-          version: '1.8.0'
+        uses: tlaplus-community/tlaplus-action@v1
           
       - name: Verify Scheduler Model
         run: |
@@ -25,7 +23,7 @@ jobs:
             specs/tla/IPC.tla
             
       - name: Upload Verification Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: tla-results
           path: specs/tla/*.out
