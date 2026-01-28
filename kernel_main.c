@@ -1,15 +1,55 @@
-// E-comOS Kernel Main Entry Point
-// Copyright (C) 2025 Saladin5101
+/*
+    E-comOS Kernel - A Microkernel for E-comOS
+    Copyright (C) 2025,2026  Saladin5101
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 #include <stdint.h>
+#include <kernel/arch/x86_64.h>
+#include <kernel/mm.h>
+#include <kernel/sched.h>
+#include <kernel/ipc.h>
+#include <kernel/syscall.h>
 
-// Forward declaration from main kernel
+// External kernel main function
 extern void kernel_main(void);
 
-// Simple wrapper to call the main kernel function
-void _start(void) {
-    kernel_main();
+// Early initialization for 64-bit mode
+static void early_init_64(void) {
+    // Set up stack for kernel
+    __asm__ volatile (
+        "mov $0x200000, %%rsp\n"
+        "mov %%rsp, %%rbp\n"
+        :
+        :
+        : "memory"
+    );
+    
+    // Clear direction flag
+    __asm__ volatile ("cld");
 }
 
-// Include the main kernel implementation
-#include "src/kernel/main.c"
+// Kernel entry point
+void _start(void) {
+    early_init_64();
+    kernel_main();
+    
+    // Should never return
+    __asm__ volatile (
+        "cli\n"
+        "1: hlt\n"
+        "jmp 1b\n"
+    );
+}

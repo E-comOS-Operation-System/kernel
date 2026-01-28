@@ -23,11 +23,26 @@ struct process {
     object_id_t *objects;      // Objects owned by this process
     uint32_t object_count;
     uint32_t state;
+
+    uint8_t block_reason;       // Reason for blocking (e.g., IRQ_WAIT)
+    int32_t last_error;         // Last error code
+
+    union {
+        uint8_t irq_num;        // IRQ number (if waiting for IRQ)
+    } block_data;
 };
 
 // Process operations
 process_id_t process_create(uint32_t type, void *entry_point);
 int process_destroy(process_id_t pid);
 int process_grant_object(process_id_t pid, object_id_t obj);
+
+// Scheduler functions
+process_t* sched_get_process_by_pid(process_id_t pid);
+process_t* sched_get_current_process(void);
+process_id_t sched_get_current_pid(void);
+void sched_yield(void);
+
+typedef struct process process_t;
 
 #endif
