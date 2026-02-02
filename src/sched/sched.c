@@ -62,3 +62,21 @@ void sched_schedule(void) {
         next = (next + 1) % MAX_THREADS;
     }
 }
+
+// Missing functions needed by syscall.c
+struct thread* sched_get_process_by_pid(uint32_t pid) {
+    for (int i = 0; i < MAX_THREADS; i++) {
+        if (threads[i].id == pid) {
+            return &threads[i];
+        }
+    }
+    return 0;
+}
+
+uint32_t sched_get_current_pid(void) {
+    return threads[current_thread].id;
+}
+
+struct thread* sched_get_current_process(void) {
+    return &threads[current_thread];
+}

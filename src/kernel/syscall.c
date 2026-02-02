@@ -305,9 +305,3 @@ long syscall_handler(uint32_t syscall_num, uint32_t arg1, uint32_t arg2, uint32_
             return -1; // Invalid syscall
     }
 }
-
-// Suppress unused parameter warning for `color`
-void clear_screen(uint8_t color) {
-    (void)color; // Explicitly mark as unused
-    // ...existing code...
-}

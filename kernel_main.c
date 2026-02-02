@@ -17,18 +17,26 @@
 */
 
 #include <stdint.h>
-#include <kernel/arch/x86_64.h>
-#include <kernel/mm.h>
-#include <kernel/sched.h>
-#include <kernel/ipc.h>
-#include <kernel/syscall.h>
 
-// External kernel main function
+// Forward declaration
 extern void kernel_main(void);
 
-// Early initialization for 64-bit mode
-static void early_init_64(void) {
-    // Set up stack for kernel
+// Assembly entry point that calls our C entry
+__asm__(
+    ".section .text\n"
+    ".global _start\n"
+    "_start:\n"
+    "    movq $0x200000, %rsp\n"  // Set stack pointer
+    "    cld\n"                    // Clear direction flag
+    "    call kernel_entry\n"     // Call C entry point
+    "    cli\n"                    // Disable interrupts
+    "1:  hlt\n"                   // Halt
+    "    jmp 1b\n"                // Loop forever
+);
+
+// C kernel entry point
+void kernel_entry(void) {
+    // Set up stack and call main kernel
     __asm__ volatile (
         "mov $0x200000, %%rsp\n"
         "mov %%rsp, %%rbp\n"
@@ -37,19 +45,5 @@ static void early_init_64(void) {
         : "memory"
     );
     
-    // Clear direction flag
-    __asm__ volatile ("cld");
-}
-
-// Kernel entry point
-void _start(void) {
-    early_init_64();
     kernel_main();
-    
-    // Should never return
-    __asm__ volatile (
-        "cli\n"
-        "1: hlt\n"
-        "jmp 1b\n"
-    );
 }

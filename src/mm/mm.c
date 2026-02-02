@@ -16,6 +16,7 @@
 */
 
 #include <kernel/mm.h>
+#include <stdint.h>
 
 #define PAGE_SIZE 4096
 #define MEMORY_START 0x100000 // 1MB
@@ -36,13 +37,30 @@
 #define PDE_WRITABLE  PTE_WRITABLE
 #define PDE_USER      PTE_USER
 
-static uint8_t page_bitmap[MAX_PAGES / 8];
 static uint32_t next_free_page = 0;
 
 // Page table management variables
 static uint32_t* page_directory = 0;
 static uint32_t* page_tables[4] = {0}; // 4 page tables for 16MB address space
 static int page_tables_initialized = 0;
+
+// Global variable definitions
+uint8_t page_bitmap[MAX_PAGES / 8] = {0};  // Fixed: Changed MAX_PHYS_PAGES to MAX_PAGES
+
+// Helper functions for control registers
+static inline uint64_t read_cr0(void) {
+    uint64_t value;
+    __asm__ volatile("movq %%cr0, %0" : "=r"(value));
+    return value;
+}
+
+static inline void write_cr0(uint64_t value) {
+    __asm__ volatile("movq %0, %%cr0" : : "r"(value) : "memory");
+}
+
+static inline void write_cr3(uint64_t value) {
+    __asm__ volatile("movq %0, %%cr3" : : "r"(value) : "memory");
+}
 
 // Initialize page tables for identity mapping
 static int init_page_tables(void) {
@@ -166,14 +184,17 @@ uint32_t mm_get_page_directory(void) {
 void mm_enable_paging(void) {
     uint32_t cr3 = mm_get_page_directory();
     if (cr3) {
+        // Fixed inline assembly for x86-64
+        uint64_t cr3_value = (uint64_t)cr3;
         __asm__ volatile (
-            "mov %0, %%cr3\n"
-            "mov %%cr0, %%eax\n"
-            "or $0x80000000, %%eax\n" // Set PG bit
-            "mov %%eax, %%cr0\n"
-            :
-            : "r"(cr3)
-            : "eax", "memory"
+            "movq %0, %%rax\n"          // Load CR3 value into RAX
+            "movq %%rax, %%cr3\n"       // Move RAX to CR3
+            "movq %%cr0, %%rax\n"       // Read CR0 into RAX
+            "orl $0x80000000, %%eax\n"  // Set PG bit (bit 31) - Using ORL for 32-bit operation
+            "movq %%rax, %%cr0\n"       // Write back to CR0
+            : 
+            : "r"(cr3_value)           // Input: CR3 value
+            : "rax", "memory"           // Clobbered registers
         );
     }
 }

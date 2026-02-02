@@ -31,7 +31,7 @@ struct process {
         uint8_t irq_num;        // IRQ number (if waiting for IRQ)
     } block_data;
 };
-
+typedef struct process process_t;
 // Process operations
 process_id_t process_create(uint32_t type, void *entry_point);
 int process_destroy(process_id_t pid);
@@ -42,7 +42,5 @@ process_t* sched_get_process_by_pid(process_id_t pid);
 process_t* sched_get_current_process(void);
 process_id_t sched_get_current_pid(void);
 void sched_yield(void);
-
-typedef struct process process_t;
 
 #endif
