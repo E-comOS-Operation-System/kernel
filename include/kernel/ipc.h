@@ -21,15 +21,30 @@
 
 #include <stdint.h>
 
+// Return codes to match C library
+#define ECLIB_OK 0
+#define ECLIB_IPC_TIMEOUT -1
+#define ECLIB_IPC_SERVICE_UNAVAIL -2
+#define ECLIB_IPC_PERMISSION_DENIED -3
+#define ECLIB_IPC_BUFFER_OVERFLOW -4
+
 typedef uint32_t thread_id_t;
 
-struct ipc_message {
-    thread_id_t sender;
-    uint32_t size;
-    uint8_t data[256];
-};
+// IPC message structure to match C library
+typedef struct {
+    uint32_t type;
+    uint32_t flags;
+    thread_id_t sender_pid;
+    thread_id_t receiver_pid;
+    uint32_t data_len;
+    uint8_t payload[256];
+} ipc_message_t;
 
-int ipc_send(thread_id_t target, struct ipc_message *msg);
-int ipc_receive(struct ipc_message *msg);
+// Kernel IPC functions
+int ipc_send(thread_id_t target, ipc_message_t *msg);
+int ipc_receive(ipc_message_t *msg);
+int ipc_receive_msg(ipc_message_t* msg, int timeout_ms);
+int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid, 
+                 uint32_t data_len, const void* data);
 
 #endif

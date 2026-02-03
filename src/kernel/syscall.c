@@ -280,10 +280,10 @@ long syscall_irq_reset_count(uint8_t irq_num) {
 long syscall_handler(uint32_t syscall_num, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
     switch (syscall_num) {
         case SYS_IPC_SEND:
-            return ipc_send((thread_id_t)arg1, (struct ipc_message*)arg2);
+            return ipc_send((thread_id_t)arg1, (ipc_message_t*)arg2);
             
         case SYS_IPC_RECEIVE:
-            return ipc_receive((struct ipc_message*)arg1);
+            return ipc_receive((ipc_message_t*)arg1);
             
         case SYS_THREAD_YIELD:
             sched_yield();

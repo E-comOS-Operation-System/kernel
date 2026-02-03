@@ -18,8 +18,9 @@
 
 #include <stdint.h>
 
-// Forward declaration
+// Forward declarations
 extern void kernel_main(void);
+extern void init_service_entry(void);
 
 // Assembly entry point that calls our C entry
 __asm__(

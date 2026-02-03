@@ -54,13 +54,13 @@ static const char* exception_messages[] = {
 void isr_handler(struct registers regs) {
     if (regs.int_no < 32) {
         // CPU异常
-        print("Exception: ");
-        print(exception_messages[regs.int_no]);
-        print("\n");
+        print("Exception: ", 0x4F);
+        print(exception_messages[regs.int_no], 0x4F);
+        print("\n", 0x4F);
         
         // 对于严重异常，停止系统
         if (regs.int_no == 8 || regs.int_no == 13 || regs.int_no == 14) {
-            print("System halted due to critical exception\n");
+            print("System halted due to critical exception\n", 0x4F);
             while (1) {
                 __asm__ volatile ("cli; hlt");
             }

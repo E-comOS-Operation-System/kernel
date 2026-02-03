@@ -66,12 +66,16 @@ UEFI_IMAGE := ecomos-uefi.img
 C_SOURCES := \
     kernel_main.c \
     src/kernel/main.c \
+    src/kernel/init.c \
     src/kernel/syscall.c \
     src/mm/mm.c \
     src/ipc/ipc.c \
     src/sched/sched.c \
     src/printkit/print.c \
-    src/time/time.c
+    src/time/time.c \
+    arch/x86_64/interrupts/idt.c \
+    arch/x86_64/interrupts/isr.c \
+    arch/x86_64/interrupts/irq.c
 
 ASM_SOURCES :=
 
