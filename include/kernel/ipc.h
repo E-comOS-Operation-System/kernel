@@ -18,15 +18,19 @@
 
 #ifndef KERNEL_IPC_H
 #define KERNEL_IPC_H
-
+#define IPC_MAX_DATA_SIZE    4096
 #include <stdint.h>
 
 typedef uint32_t thread_id_t;
 
-struct ipc_message {
-    thread_id_t sender;
-    uint32_t size;
-    uint8_t data[256];
+struct IPCMessage {
+  uint32_t type;
+  uint32_t source;
+  uint32_t target;
+  uint32_t timestamp;
+  uint32_t size;
+  uint32_t sequence;
+  uint8_t data[IPC_MAX_DATA_SIZE];
 };
 
 int ipc_send(thread_id_t target, struct ipc_message *msg);
