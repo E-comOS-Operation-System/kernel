@@ -1,6 +1,6 @@
 /*
     E-comOS Kernel - A Microkernel for E-comOS
-    Copyright (C) 2025  Saladin5101
+    Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published
@@ -17,97 +17,106 @@
 */
 
 #include <stdint.h>
+#include <kernel/arch/x86_64.h>
+#include <kernel/mm.h>
+#include <kernel/sched.h>
+#include <kernel/ipc.h>
+#include <kernel/syscall.h>
+#include <kernel/printkit/print.h>
+#include <kernel/arch/interrupts.h>
 
-// VGA display functions
-static volatile uint16_t* vga_buffer = (volatile uint16_t*)0xB8000;
-static int cursor_x = 0, cursor_y = 0;
 
-void vga_clear(void) {
-    for (int i = 0; i < 80 * 25; i++) {
-        vga_buffer[i] = 0x0720; // Space with white on black
-    }
-    cursor_x = cursor_y = 0;
-}
+// Simple VGA text mode buffer
+// VGA memory starts at 0xB8000 in 80x25 text mode
+#define VGA_MEMORY ((volatile uint16_t*)0xB8000)
 
-void vga_putchar(char c) {
-    if (c == '\n') {
-        cursor_x = 0;
-        cursor_y++;
-    } else {
-        int pos = cursor_y * 80 + cursor_x;
-        vga_buffer[pos] = 0x0F00 | c; // White on black
-        cursor_x++;
-    }
-    
-    if (cursor_x >= 80) {
-        cursor_x = 0;
-        cursor_y++;
-    }
-    
-    if (cursor_y >= 25) {
-        cursor_y = 0; // Simple wrap
-    }
-}
+// Ensure kernel_main is not name-mangled
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-void vga_print(const char* str) {
-    while (*str) {
-        vga_putchar(*str++);
-    }
-}
-
-// Simple memory allocator
-static uint64_t next_free_page = 0x300000; // Start after kernel
-
-void* alloc_page(void) {
-    void* page = (void*)next_free_page;
-    next_free_page += 4096;
-    return page;
-}
-
-// Process structure
-typedef struct process {
-    uint64_t pid;
-    uint64_t rsp;
-    int state; // 0=running, 1=ready, 2=blocked
-    struct process* next;
-} process_t;
-
-static process_t* current_process = 0;
-static uint64_t next_pid = 1;
-
-// Create new process
-uint64_t create_process(void (*entry)(void)) {
-    process_t* proc = (process_t*)alloc_page();
-    if (!proc) return 0;
-    
-    proc->pid = next_pid++;
-    proc->state = 1; // ready
-    proc->rsp = (uint64_t)alloc_page() + 4096 - 8; // Stack top
-    proc->next = current_process;
-    current_process = proc;
-    
-    // Set up initial stack frame
-    *(uint64_t*)proc->rsp = (uint64_t)entry;
-    
-    return proc->pid;
-}
-
-// Kernel main function
+// Main kernel function - seL4 style initialization
 void kernel_main(void) {
-    // Initialize display
-    vga_clear();
-    vga_print("E-comOS 64-bit Microkernel\n");
-    vga_print("Copyright (C) 2025 Saladin5101\n\n");
+    // Phase 1: Early platform initialization (like seL4's init_kernel)
+    clear_screen(0x1F);
+    print("E-comOS Microkernel v0.0.1\n", 0x1F);
+    print("Initializing kernel...\n", 0x1F);
     
-    // Initialize subsystems
-    vga_print("Initializing Memory Manager...OK\n");
-    vga_print("Initializing Process Manager...OK\n");
+    // Phase 2: Memory subsystem (seL4's init_freemem)
+    print("Initializing memory subsystem...\n", 0x1F);
+    mm_enable_paging();
     
-    vga_print("\nMicrokernel Ready!\n");
-    vga_print("Philosophy: Everything is a service\n");
+    // Phase 3: Interrupt and exception handling (seL4's init_irqs)
+    print("Setting up interrupt handling...\n", 0x1F);
+    idt_init();
+    irq_remap();
     
-    // Microkernel main loop - pure 64-bit
+    // Phase 4: Scheduler initialization (seL4's init_sched)
+    print("Initializing scheduler...\n", 0x1F);
+    // Scheduler already initialized via static arrays
+    
+    // Phase 5: IPC initialization (seL4's init_ipc)
+    print("Initializing IPC subsystem...\n", 0x1F);
+    // syscall_irq_init(); // TODO: implement this function
+    
+    // Phase 6: Create initial thread (seL4's create_initial_thread)
+    print("Creating initial thread (init service)...\n", 0x1F);
+    extern void init_service_entry(void);
+    int init_tid = sched_create_thread(init_service_entry);
+    if (init_tid > 0) {
+        print("Init service created with TID: ", 0x2F);
+        print_number(init_tid, 0x2F);
+        print("\n", 0x2F);
+    }
+    
+    // Phase 7: Enable interrupts and enter kernel loop (seL4's schedule)
+    print("Kernel initialization complete. Starting scheduler...\n", 0x2F);
+    __asm__ volatile ("sti"); // Enable interrupts
+    
+    // seL4-style kernel loop: pure microkernel scheduler
     while (1) {
+        // 1. Schedule next thread
+        sched_schedule();
+        
+        // 2. Handle any pending kernel operations
+        // Process pending IPC messages
+        ipc_message_t pending_msg;
+        if (ipc_receive(&pending_msg) == ECLIB_OK) {
+            // Route message to target thread (simplified for now)
+            // TODO: implement proper message routing
+        }
+        
+        // Handle pending system calls
+        // syscall_irq_check_timeouts();
+        
+        // Process memory management requests
+        static uint32_t mm_check_counter = 0;
+        if (++mm_check_counter % 100 == 0) {
+            // Check for memory pressure and free unused pages
+            uint32_t used_pages = 0;
+            for (uint32_t i = 0; i < MAX_PAGES; i++) {
+                uint32_t byte_idx = i / 8;
+                uint32_t bit_idx = i % 8;
+                if (page_bitmap[byte_idx] & (1 << bit_idx)) used_pages++;
+            }
+            // If memory usage > 80%, trigger cleanup
+            if (used_pages > (MAX_PAGES * 80 / 100)) {
+                // Simple memory pressure indication
+                // TODO: implement proper memory reclamation
+            }
+        }
+        
+        // 3. Idle until interrupt
         __asm__ volatile ("hlt");
+        
+        // 4. When interrupt occurs, process it
+        // Timer interrupt -> reschedule
+        // System call interrupt -> handle syscall
+        // Hardware interrupt -> handle device
     }
 }
+
+
+#ifdef __cplusplus
+}
+#endif

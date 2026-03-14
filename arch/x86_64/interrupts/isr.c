@@ -3,7 +3,7 @@
  */
 
 #include <stdint.h>
-
+#include <printkit/print.h>
 // 寄存器结构体
 struct registers {
     uint32_t ds;                                     // 数据段选择子
@@ -48,20 +48,19 @@ static const char* exception_messages[] = {
     "Reserved"
 };
 
-// 外部函数声明
-extern void terminal_writestring(const char* data);
+
 
 // 中断处理程序
 void isr_handler(struct registers regs) {
     if (regs.int_no < 32) {
         // CPU异常
-        terminal_writestring("Exception: ");
-        terminal_writestring(exception_messages[regs.int_no]);
-        terminal_writestring("\n");
+        print("Exception: ", 0x4F);
+        print(exception_messages[regs.int_no], 0x4F);
+        print("\n", 0x4F);
         
         // 对于严重异常，停止系统
         if (regs.int_no == 8 || regs.int_no == 13 || regs.int_no == 14) {
-            terminal_writestring("System halted due to critical exception\n");
+            print("System halted due to critical exception\n", 0x4F);
             while (1) {
                 __asm__ volatile ("cli; hlt");
             }

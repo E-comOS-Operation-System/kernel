@@ -58,3 +58,6 @@ build/
 .DS_Store
 *.bin
 *.img
+.DS_Store
+*.DS_Store
+*/.DS_Store

@@ -1,6 +1,6 @@
 /*
     E-comOS Kernel - A Microkernel for E-comOS
-    Copyright (C) 2025  Saladin5101
+    Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published
@@ -21,6 +21,13 @@
 #define IPC_MAX_DATA_SIZE    4096
 #include <stdint.h>
 
+// Return codes to match C library
+#define ECLIB_OK 0
+#define ECLIB_IPC_TIMEOUT -1
+#define ECLIB_IPC_SERVICE_UNAVAIL -2
+#define ECLIB_IPC_PERMISSION_DENIED -3
+#define ECLIB_IPC_BUFFER_OVERFLOW -4
+
 typedef uint32_t thread_id_t;
 
 struct IPCMessage {
@@ -33,7 +40,11 @@ struct IPCMessage {
   uint8_t data[IPC_MAX_DATA_SIZE];
 };
 
-int ipc_send(thread_id_t target, struct ipc_message *msg);
-int ipc_receive(struct ipc_message *msg);
+// Kernel IPC functions
+int ipc_send(thread_id_t target, ipc_message_t *msg);
+int ipc_receive(ipc_message_t *msg);
+int ipc_receive_msg(ipc_message_t* msg, int timeout_ms);
+int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid, 
+                 uint32_t data_len, const void* data);
 
 #endif

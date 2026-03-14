@@ -1,6 +1,6 @@
 /*
     E-comOS Kernel - A Microkernel for E-comOS
-    Copyright (C) 2025  Saladin5101
+    Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published
@@ -50,15 +50,41 @@ void sched_yield(void) {
 }
 
 void sched_schedule(void) {
-    uint32_t next = (current_thread + 1) % MAX_THREADS;
+    static uint32_t last_scheduled = 0;
+    uint32_t next = (last_scheduled + 1) % MAX_THREADS;
     
-    while (next != current_thread) {
-        if (threads[next].state == THREAD_READY) {
-            threads[current_thread].state = THREAD_READY;
+    // Find next ready thread
+    for (int i = 0; i < MAX_THREADS; i++) {
+        if (threads[next].state == THREAD_READY && threads[next].id != 0) {
+            // Switch context
+            if (current_thread < MAX_THREADS && threads[current_thread].id != 0) {
+                threads[current_thread].state = THREAD_READY;
+            }
+            
             threads[next].state = THREAD_RUNNING;
-            current_thread = next;
-            break;
+            last_scheduled = current_thread = next;
+            
+            // Context switch would happen here in real implementation
+            return;
         }
         next = (next + 1) % MAX_THREADS;
     }
+}
+
+// Missing functions needed by syscall.c
+struct thread* sched_get_process_by_pid(uint32_t pid) {
+    for (int i = 0; i < MAX_THREADS; i++) {
+        if (threads[i].id == pid) {
+            return &threads[i];
+        }
+    }
+    return 0;
+}
+
+uint32_t sched_get_current_pid(void) {
+    return threads[current_thread].id;
+}
+
+struct thread* sched_get_current_process(void) {
+    return &threads[current_thread];
 }
