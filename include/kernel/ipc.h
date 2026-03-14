@@ -30,7 +30,7 @@
 
 typedef uint32_t thread_id_t;
 
-struct IPCMessage {
+typedef struct IPCMessage {
   uint32_t type;
   uint32_t source;
   uint32_t target;
@@ -38,11 +38,9 @@ struct IPCMessage {
   uint32_t size;
   uint32_t sequence;
   uint8_t data[IPC_MAX_DATA_SIZE];
-};
+} ipc_message_t;
 
 // Kernel IPC functions
-int ipc_send(thread_id_t target, ipc_message_t *msg);
-int ipc_receive(ipc_message_t *msg);
 int ipc_receive_msg(ipc_message_t* msg, int timeout_ms);
 int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid, 
                  uint32_t data_len, const void* data);
