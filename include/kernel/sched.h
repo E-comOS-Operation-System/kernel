@@ -33,11 +33,19 @@ struct thread {
     thread_state_t state;
     uint32_t stack_ptr;
     uint32_t priority;
+    uint8_t  block_reason;
+    int32_t  last_error;
+    union {
+        uint8_t irq_num;
+    } block_data;
 };
 
 // Scheduler functions
 int sched_create_thread(void (*entry_point)(void));
 void sched_yield(void);
 void sched_schedule(void);
+struct thread* sched_get_process_by_pid(uint32_t pid);
+struct thread* sched_get_current_process(void);
+uint32_t sched_get_current_pid(void);
 
 #endif

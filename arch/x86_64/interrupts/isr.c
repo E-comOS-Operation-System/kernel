@@ -3,16 +3,8 @@
  */
 
 #include <stdint.h>
-#include <printkit/print.h>
-// 寄存器结构体
-struct registers {
-    uint32_t ds;                                     // 数据段选择子
-    uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax; // 通用寄存器
-    uint32_t int_no, err_code;                       // 中断号和错误码
-    uint32_t eip, cs, eflags, useresp, ss;          // 处理器推入的寄存器
-};
+#include <kernel/printkit/print.h>
 
-// 异常消息数组
 static const char* exception_messages[] = {
     "Division By Zero",
     "Debug",
@@ -35,35 +27,21 @@ static const char* exception_messages[] = {
     "Machine Check",
     "SIMD Floating Point Exception",
     "Virtualization Exception",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved"
+    "Reserved", "Reserved", "Reserved", "Reserved",
+    "Reserved", "Reserved", "Reserved", "Reserved",
+    "Reserved", "Reserved", "Reserved"
 };
 
-
-
-// 中断处理程序
-void isr_handler(struct registers regs) {
-    if (regs.int_no < 32) {
-        // CPU异常
+/* Called from isr.s with (int_no, err_code) in rdi, rsi */
+void isr_handler(uint64_t int_no, uint64_t err_code) {
+    (void)err_code;
+    if (int_no < 32) {
         print("Exception: ", 0x4F);
-        print(exception_messages[regs.int_no], 0x4F);
+        print(exception_messages[int_no], 0x4F);
         print("\n", 0x4F);
-        
-        // 对于严重异常，停止系统
-        if (regs.int_no == 8 || regs.int_no == 13 || regs.int_no == 14) {
-            print("System halted due to critical exception\n", 0x4F);
-            while (1) {
-                __asm__ volatile ("cli; hlt");
-            }
+        if (int_no == 8 || int_no == 13 || int_no == 14) {
+            print("System halted\n", 0x4F);
+            while (1) __asm__ volatile ("cli; hlt");
         }
     }
 }

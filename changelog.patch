@@ -1,0 +1,2427 @@
+diff --git a/Makefile b/Makefile
+index 6a32b2e..6662dd2 100644
+--- a/Makefile
++++ b/Makefile
+@@ -16,7 +16,6 @@
+ # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ # =============================================================================
+ 
+-<<<<<<< HEAD
+ # E-comOS Makefile
+ # Cross-platform compatible for macOS, Linux, and Windows (WSL/Cygwin)
+ # Core targets:
+@@ -32,12 +31,7 @@ UNAME := $(shell uname -s)
+ # Toolchain - prefer cross-compiler for consistency
+ ifeq ($(UNAME),Darwin)
+     # macOS
+-    CC = $(shell which x86_64-elf-gcc 2>/dev/null || which clang 2>/dev/null || echo "gcc")
+-    AS = $(shell which x86_64-elf-as 2>/dev/null || which as 2>/dev/null || echo "as")
+-    LD = $(shell which x86_64-elf-ld 2>/dev/null || which ld 2>/dev/null || echo "ld")
+-    OBJCOPY = $(shell which x86_64-elf-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo "objcopy")
+-    QEMU = qemu-system-x86_64
+-    STAT_SIZE = stat -f%z
++    @exit 1
+ else ifeq ($(UNAME),Linux)
+     # Linux
+     CC = $(shell which x86_64-elf-gcc 2>/dev/null || which gcc 2>/dev/null)
+@@ -48,12 +42,7 @@ else ifeq ($(UNAME),Linux)
+     STAT_SIZE = stat -c%s
+ else
+     # Windows (Cygwin/MinGW/WSL)
+-    CC = gcc
+-    AS = as
+-    LD = ld
+-    OBJCOPY = objcopy
+-    QEMU = qemu-system-x86_64.exe
+-    STAT_SIZE = stat -c%s
++    @exit 1
+ endif
+ 
+ # NASM for assembly files
+@@ -71,18 +60,38 @@ NASM_ELF64_FLAGS = -f elf64           # For kernel ELF objects
+ NASM_BIN_FLAGS = -f bin               # For boot sector (raw binary)
+ 
+ # Linker flags
+-LDFLAGS = -m elf_x86_64 -nostdlib -T arch/x86_64/boot/linker.ld
++LDFLAGS = -m elf_x86_64 -nostdlib -T uefi.ld
+ 
+ # Source files
+ KERNEL_SOURCES = src/kernel/main.c \
++                 src/kernel/syscall.c \
++                 src/kernel/init.c \
+                  src/ipc/ipc.c \
+                  src/mm/mm.c \
+                  src/sched/sched.c \
+-                 src/kernel/syscall.c
++                 src/printkit/print.c \
++                 src/time/time.c \
++                 arch/x86_64/cpu/gdt.c \
++                 arch/x86_64/interrupts/idt.c \
++                 arch/x86_64/interrupts/isr.c \
++                 arch/x86_64/interrupts/irq.c
+ 
+ # Assembly source files
+ 
+-ASM_SOURCES = kernel_entry.s
++ASM_SOURCES = arch/x86_64/cpu/context_switch.s \
++              boot/uefi_start.s
++
++# Note: EFI entrypoint is provided by existing `boot/uefi_start.s` (_start).
++
++ASM_EXTRA_OBJS = arch/x86_64/interrupts/isr_asm.o \
++                 arch/x86_64/interrupts/irq_asm.o
++
++# EFI-specific assembly stub for PE/EFI builds (don't include in normal boot image)
++EFI_ASM_SOURCES = src/efi/efi_start.s
++EFI_ASM_OBJS = $(EFI_ASM_SOURCES:.s=.o)
++
++# Objects used when linking the ELF that will be converted to PE (use EFI stub here)
++ALL_OBJS_ELF = $(KERNEL_OBJS) $(EFI_ASM_OBJS) $(ASM_EXTRA_OBJS)
+ 
+ # Boot sector source files
+ STAGE1_SRC = src/boot/bootsect.s
+@@ -90,85 +99,54 @@ STAGE2_SRC = src/boot/bootsect-2nd.s
+ 
+ # Object files
+ KERNEL_OBJS = $(KERNEL_SOURCES:.c=.o)
+-
+-ALL_OBJS = $(KERNEL_OBJS) $(ASM_OBJS)
++ASM_OBJS    = $(ASM_SOURCES:.s=.o)
++ALL_OBJS    = $(KERNEL_OBJS) $(ASM_OBJS) $(ASM_EXTRA_OBJS)
+ 
+ # Boot binaries
+ STAGE1_BIN = dos25-release.bin
+ STAGE2_BIN = dos25-stage2.bin
+ KERNEL_BIN = kernel.bin
++KERNEL_EFI = kernel.efi
++KERNEL_ELF = kernel.elf
+ IMAGE_FILE = canuse.img
+-=======
+-# Core targets:
+-# - make all      → Build everything (kernel + UEFI image)
+-# - make kernel   → Build kernel binary only  
+-# - make uefi     → Create UEFI bootable image
+-# - make run      → Test in QEMU with OVMF
+-# - make clean    → Clean all build artifacts
+-# - make help     → Show help message
+ 
+-# =============================================================================
+-# CONFIGURATION
+-# =============================================================================
+ 
+-# Cross-compiler toolchain for x86_64-elf
+-PREFIX := x86_64-elf-
+-CC := $(PREFIX)gcc
+-LD := $(PREFIX)ld
+-OBJCOPY := $(PREFIX)objcopy
+-AS := $(PREFIX)gcc  # Use gcc for assembling .s files
+-QEMU := qemu-system-x86_64
+-
+-# Check if cross-compiler is available
+-ifeq (, $(shell which $(CC) 2>/dev/null))
+-    $(error x86_64-elf-gcc not found! Please install cross-compiler toolchain)
+-endif
+ 
+-# UEFI-specific flags
+-CFLAGS := -m64 -ffreestanding -fno-builtin -fno-stack-protector \
+-          -nostdlib -Wall -Wextra -c -mcmodel=large -mno-red-zone \
+-          -fno-pic -fno-pie
+ 
+-# Assembly flags
+-ASFLAGS := -m64 -c -x assembler-with-cpp
++# UEFI PE/COFF build outputs (标准crt0-efi-x86_64.o/elf_x86_64_efi.lds方案)
++EFI_INC = /usr/include/efi
++EFI_INC_X64 = /usr/include/efi/x86_64
++EFI_LIB = /usr/lib
++EFI_LDS = /usr/lib/elf_x86_64_efi.lds
++EFI_CRT0 = /usr/lib/crt0-efi-x86_64.o
+ 
+-# Linker flags
+-LDFLAGS := -m elf_x86_64 -nostdlib -T uefi.ld -z max-page-size=0x1000
++KERNEL_OBJ = kernel.o
++KERNEL_SO = kernel.so
++KERNEL_EFI = kernel.efi
+ 
+-# Add include directories to compiler flags
+-INCLUDE_DIRS := -Iinclude -Iinclude/kernel -Iinclude/kernel/arch \
+-                -Iarch/x86_64/internal
+-CFLAGS += $(INCLUDE_DIRS)
+-ASFLAGS += $(INCLUDE_DIRS)
++CFLAGS += -ffreestanding -fno-stack-protector -fpic -mno-red-zone -Wall -Iinclude -I$(EFI_INC) -I$(EFI_INC_X64)
++LDFLAGS = -nostdlib -T $(EFI_LDS) -shared -Bsymbolic -L$(EFI_LIB) -lefi -lgnuefi
+ 
+-# Output files
+-KERNEL_ELF := kernel.elf
+-UEFI_IMAGE := ecomos-uefi.img
++all: $(KERNEL_EFI)
++
++$(KERNEL_OBJ): src/kernel/main.c
++	$(CC) $(CFLAGS) -c $< -o $@
++
++$(KERNEL_SO): $(EFI_CRT0) $(KERNEL_OBJ)
++	$(LD) -nostdlib -T $(EFI_LDS) -shared -Bsymbolic -o $@ $(EFI_CRT0) $(KERNEL_OBJ) -L$(EFI_LIB) -lefi -lgnuefi
++
++$(KERNEL_EFI): $(KERNEL_SO)
++	@if $(OBJCOPY) --help 2>&1 | grep -q efi-app-x86_64; then \
++	  $(OBJCOPY) -O efi-app-x86_64 $< $@; \
++	else \
++	  $(OBJCOPY) -O pei-x86-64 --subsystem=10 --file-alignment=0x200 --section-alignment=0x1000 --add-section .reloc=/dev/null $< $@; \
++	fi
++
++clean:
++	rm -f $(KERNEL_OBJ) $(KERNEL_SO) $(KERNEL_EFI)
+ 
+-# Source files
+-C_SOURCES := \
+-    kernel_main.c \
+-    src/kernel/main.c \
+-    src/kernel/init.c \
+-    src/kernel/syscall.c \
+-    src/mm/mm.c \
+-    src/ipc/ipc.c \
+-    src/sched/sched.c \
+-    src/printkit/print.c \
+-    src/time/time.c \
+-    arch/x86_64/interrupts/idt.c \
+-    arch/x86_64/interrupts/isr.c \
+-    arch/x86_64/interrupts/irq.c
+-
+-ASM_SOURCES :=
+->>>>>>> ec37f5423fdac6dbb9748e82d6a54f71f0935f44
+ 
+-# Object files
+-C_OBJECTS := $(C_SOURCES:.c=.o)
+-ASM_OBJECTS := $(ASM_SOURCES:.s=.o)
+-ALL_OBJECTS := $(C_OBJECTS) $(ASM_OBJECTS)
+ 
+-<<<<<<< HEAD
+ # Kernel target
+ kernel: $(KERNEL_BIN)
+ 	@echo "✅ E-comOS kernel binary ready: $(KERNEL_BIN)"
+@@ -219,6 +197,15 @@ $(STAGE2_BIN): $(STAGE2_SRC)
+ 	$(CC) $(CFLAGS) -I include -o $@ $<
+ 
+ # Assemble assembly source files (GAS/AT&T syntax)
++# Use _asm suffix to avoid collision with same-named .c files
++arch/x86_64/interrupts/isr_asm.o: arch/x86_64/interrupts/isr.s
++	@echo "🔧 Assembling $< with GNU as..."
++	as $(ASFLAGS) -o $@ $<
++
++arch/x86_64/interrupts/irq_asm.o: arch/x86_64/interrupts/irq.s
++	@echo "🔧 Assembling $< with GNU as..."
++	as $(ASFLAGS) -o $@ $<
++
+ %.o: %.s
+ 	@echo "🔧 Assembling $< with GNU as..."
+ 	as $(ASFLAGS) -o $@ $<
+@@ -237,6 +224,72 @@ $(KERNEL_BIN): $(ALL_OBJS)
+ 	$(LD) $(LDFLAGS) -o $@ $(ALL_OBJS)
+ 	@echo "   Kernel size: $$($(STAT_SIZE) $@ 2>/dev/null || wc -c < $@) bytes"
+ 
++# Link an ELF that we will convert to PE32+ using objcopy
++$(KERNEL_ELF): $(ALL_OBJS)
++	@echo "🔗 Linking kernel ELF for PE conversion..."
++	$(LD) $(LDFLAGS) -o $@ $(ALL_OBJS)
++	@echo "   ELF size: $$($(STAT_SIZE) $@ 2>/dev/null || wc -c < $@) bytes"
++
++# --- GNU-EFI build path: produce a PE with proper EFI headers and relocations
++$(GNU_EFI_INC)/: ;
++
++$(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds:
++	@echo "Note: GNU-EFI linker script not found at $(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds"
++	@echo "If GNU-EFI is not installed, on Debian/Ubuntu: sudo apt install gnu-efi";
++	@false
++
++src/efi/gnuefi_stub.o: src/efi/gnuefi_stub.c
++	@echo "🔧 Compiling GNU-EFI stub $<..."
++	@mkdir -p $(dir $@)
++	$(CC) $(CFLAGS) -I $(GNU_EFI_INC) -I $(GNU_EFI_INC_X64) -fshort-wchar -DEFI_FUNCTION_WRAPPER -o $@ -c $<
++
++$(KERNEL_GNUEFI_SO): $(ALL_OBJS) src/efi/gnuefi_stub.o | $(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds
++	@echo "🔗 Linking with GNU-EFI libs to produce shared PE object..."
++	@if [ ! -f $(GNU_EFI_LDSCRIPT) ]; then \
++	    echo "❌ GNU-EFI linker script not found at $(GNU_EFI_LDSCRIPT)."; \
++	    echo "   Install gnu-efi (Debian/Ubuntu: sudo apt install gnu-efi) or set GNU_EFI_LIB_DIR="; exit 1; \
++	    fi
++	# Do not disable combined relocations; keep default to allow .rela -> .reloc conversion
++	ld -nostdlib -T $(GNU_EFI_LDSCRIPT) -shared -Bsymbolic -L $(GNU_EFI_LIB_DIR) -lefi -lgnuefi -o $@ $(ALL_OBJS) src/efi/gnuefi_stub.o
++
++# Experimental: try linking directly to PE (pei-x86-64) so linker emits proper PE directories
++kernel_direct.efi: $(ALL_OBJS) src/efi/gnuefi_stub.o | $(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds
++	@echo "🔗 Direct-linking PE (experimental) using ld --oformat=pei-x86-64..."
++	@if [ ! -f $(GNU_EFI_LDSCRIPT) ]; then \
++	    echo "❌ GNU-EFI linker script not found at $(GNU_EFI_LDSCRIPT)."; exit 1; \
++	fi
++	# Place objects before libraries so undefined refs in stub are resolved
++	ld -nostdlib -T $(GNU_EFI_LDSCRIPT) -shared -Bsymbolic -o $@ $(ALL_OBJS) src/efi/gnuefi_stub.o -L $(GNU_EFI_LIB_DIR) -lefi -lgnuefi --oformat=pei-x86-64 || true
++
++
++$(KERNEL_EFI): $(KERNEL_GNUEFI_SO)
++	@echo "🔧 Converting GNU-EFI shared object to PE32+ EFI application (preserve relocations)..."
++	@if [ -z "$(shell which $(OBJCOPY) 2>/dev/null)" ]; then \
++		echo "❌ Error: objcopy not found; please install binutils."; exit 1; \
++		fi
++	# Prefer objcopy's built-in efi-app-x86_64 format when available; this
++	# typically sets up the PE headers and Data Directory correctly.
++ifeq ($(shell $(OBJCOPY) --help 2>/dev/null | grep -c efi-app-x86_64),0)
++	# Fallback: copy sections explicitly, renaming .rela -> .reloc so the
++	# PE image contains a Base Relocation Directory. This works on systems
++	# where objcopy lacks the efi-app target.
++	$(OBJCOPY) -O pei-x86-64 \
++		--rename-section .rela=.reloc --rename-section .rela.dyn=.reloc \
++		-j .text -j .sdata -j .data -j .rodata -j .reloc -j .rela -j .rela.dyn $< $@
++else
++	# Preferred path
++	$(OBJCOPY) -O efi-app-x86_64 $< $@
++endif
++	@echo "   Created $@ ($$(wc -c < $@ 2>/dev/null || echo 0) bytes)"
++
++.PHONY: gnuefi
++gnuefi: $(KERNEL_EFI)
++	@echo "✅ GNU-EFI PE ready: $(KERNEL_EFI)"
++
++.PHONY: efi
++efi: $(KERNEL_EFI)
++	@echo "✅ EFI application ready: $(KERNEL_EFI)"
++
+ # Create bootable image
+ $(IMAGE_FILE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_BIN)
+ 	@echo "🔨 Creating bootable floppy image..."
+@@ -339,106 +392,40 @@ help:
+ 	@echo "  bootsect*.s files: Compiled with NASM (Intel syntax)"
+ 
+ .PHONY: all kernel image run debug boottest kernel-info clean fuckimage help
+-=======
+-# =============================================================================
+-# PHONY TARGETS
+-# =============================================================================
+-
+-.PHONY: all kernel uefi run clean help check-toolchain
+-
+-# Default target - build UEFI kernel
+-all: check-toolchain $(UEFI_IMAGE)
+-	@echo "✅ Build complete: $(UEFI_IMAGE)"
+-
+-# Check toolchain availability
+-check-toolchain:
+-	@echo "🔧 Checking for x86_64-elf toolchain..."
+-	@which $(CC) >/dev/null || (echo "❌ Error: $(CC) not found!"; exit 1)
+-	@echo "✅ Toolchain found: $(shell $(CC) --version | head -n1)"
+-
+-# Build kernel only
+-kernel: check-toolchain $(KERNEL_ELF)
+-	@echo "✅ Kernel ready: $(KERNEL_ELF)"
+-
+-# Create UEFI bootable image
+-uefi: check-toolchain $(UEFI_IMAGE)
+-	@echo "✅ UEFI image: $(UEFI_IMAGE)"
+-
+-# Test in QEMU
+-run: $(UEFI_IMAGE)
+-	@echo "🚀 Starting QEMU with UEFI..."
+-	$(QEMU) -drive file=$(UEFI_IMAGE),format=raw -m 512M -serial stdio \
+-        -machine q35 -cpu qemu64 -smp 1
+-
+-# Clean build artifacts
+-clean:
+-	@echo "🧹 Cleaning build files..."
+-	@rm -f $(ALL_OBJECTS) $(KERNEL_ELF) $(UEFI_IMAGE)
+-	@echo "✅ Clean complete"
+-
+-# Show help
+-help:
+-	@echo "E-comOS Kernel Build System"
+-	@echo ""
+-	@echo "Available targets:"
+-	@echo "  make all    - Build kernel and UEFI image (default)"
+-	@echo "  make kernel - Build kernel binary only"
+-	@echo "  make uefi   - Create UEFI bootable image"
+-	@echo "  make run    - Test in QEMU with OVMF"
+-	@echo "  make clean  - Clean all build artifacts"
+-	@echo "  make help   - Show this help message"
+-	@echo ""
+-	@echo "Toolchain:"
+-	@echo "  CC: $(CC)"
+-	@echo "  LD: $(LD)"
+-	@echo "  OBJCOPY: $(OBJCOPY)"
+-	@echo "  AS: $(AS)"
+ 
+-# =============================================================================
+-# BUILD RULES
+-# =============================================================================
+-
+-# Link kernel with all object files
+-$(KERNEL_ELF): $(ALL_OBJECTS)
+-	@echo "🔗 Linking kernel..."
+-	$(LD) $(LDFLAGS) -o $@ $(ALL_OBJECTS)
+-	@echo "✅ Kernel size: $$(stat -f%z $@ 2>/dev/null || stat -c%s $@) bytes"
+-	@echo "📦 Linked object files:"
+-	@for obj in $(ALL_OBJECTS); do \
+-		if [ -f "$$obj" ]; then \
+-			echo "  ✓ $$obj"; \
+-		fi; \
+-	done
+-
+-# Compile C source files
+-%.o: %.c
+-	@echo "🔧 Compiling $<..."
+-	@mkdir -p $(dir $@)
+-	$(CC) $(CFLAGS) $< -o $@
++# Use existing DOS25 launcher to create a test ESP layout
++.PHONY: use-dos25
++use-dos25:
++	@echo "🔧 Staging DOS25 launcher and kernel into release/esp..."
++	@if [ -f "$$HOME/DOS25/esp/EFI/BOOT/BOOTX64.EFI" ]; then \
++		BOOT_SRC="$$HOME/DOS25/esp/EFI/BOOT/BOOTX64.EFI"; \
++		echo "Found launcher at $$BOOT_SRC"; \
++		echo ""; \
++		echo "Copying..."; \
++		mkdir -p release/esp/EFI/BOOT; \
++		cp "$$BOOT_SRC" release/esp/EFI/BOOT/BOOTX64.EFI; \
++	elif [ -f "$$HOME/DOS25/build/BOOTX64.EFI" ]; then \
++		BOOT_SRC="$$HOME/DOS25/build/BOOTX64.EFI"; \
++		echo "Found launcher at $$BOOT_SRC"; \
++		mkdir -p release/esp/EFI/BOOT; \
++		cp "$$BOOT_SRC" release/esp/EFI/BOOT/BOOTX64.EFI; \
++	else \
++		echo "❌ Cannot find DOS25 BOOTX64.EFI in $$HOME/DOS25/esp/EFI/BOOT or $$HOME/DOS25/build"; exit 1; \
++	fi; \
++	# Ensure kernel binary is available
++	if [ -f kernel.bin ]; then \
++		cp kernel.bin release/esp/kernel.bin; \
++		echo "Copied local kernel.bin to release/esp/kernel.bin"; \
++	else \
++		echo "⚠ kernel.bin not found; building kernel..."; \
++		$(MAKE) kernel; \
++		cp kernel.bin release/esp/kernel.bin; \
++	fi; \
++	echo "✅ Staged files under release/esp"; \
++	echo ""; \
++	echo "To test with QEMU+OVMF (adjust paths to your OVMF if needed):"; \
++	echo "  qemu-system-x86_64 -m 512 \\\n+	  -drive if=pflash,format=raw,readonly,file=/usr/share/ovmf/OVMF_CODE.fd \\\n+	  -drive if=pflash,format=raw,file=release/OVMF_VARS.fd \\\n+	  -drive file=fat:rw:release/esp,format=raw -serial stdio"; \
++	if [ ! -f /usr/share/ovmf/OVMF_CODE.fd ]; then \
++		echo "⚠ OVMF not found at /usr/share/ovmf/OVMF_CODE.fd — change to your OVMF path or install edk2-ovmf package."; \
++	fi
+ 
+-# Compile assembly files (using gcc instead of as directly)
+-# This ensures proper preprocessing and flag handling
+-%.o: %.s
+-	@echo "🔧 Assembling $< (GAS)..."
+-	@mkdir -p $(dir $@)
+-	$(AS) $(ASFLAGS) $< -o $@
+-
+-# Alternative: If you want to use NASM instead, comment the above and uncomment below
+-# NASM := nasm
+-# NASMFLAGS := -f elf64
+-# %.o: %.s
+-#	@echo "🔧 Assembling $< (NASM)..."
+-#	@mkdir -p $(dir $@)
+-#	$(NASM) $(NASMFLAGS) $< -o $@
+-
+-# Create UEFI image
+-$(UEFI_IMAGE): $(KERNEL_ELF)
+-	@echo "🔨 Creating UEFI bootable image..."
+-	# Create FAT32 image
+-	dd if=/dev/zero of=$@ bs=1M count=64 status=none
+-	mkfs.fat -F 32 $@ >/dev/null 2>&1
+-	# Copy kernel as EFI application
+-	mmd -i $@ ::/EFI ::/EFI/BOOT 2>/dev/null || true
+-	mcopy -i $@ $(KERNEL_ELF) ::/EFI/BOOT/BOOTX64.EFI
+-	@echo "✅ UEFI image created: $@"
+->>>>>>> ec37f5423fdac6dbb9748e82d6a54f71f0935f44
+diff --git a/arch/x86_64/cpu/gdt.c b/arch/x86_64/cpu/gdt.c
+index 3209372..5eaaa79 100644
+--- a/arch/x86_64/cpu/gdt.c
++++ b/arch/x86_64/cpu/gdt.c
+@@ -1,5 +1,5 @@
+ /*
+- * E-comOS - Global Descriptor Table
++ * E-comOS - Global Descriptor Table + TSS
+  */
+ 
+ #include <stdint.h>
+@@ -13,15 +13,99 @@ struct gdt_entry {
+     uint8_t base_high;
+ } __attribute__((packed));
+ 
+-static struct gdt_entry gdt[3];
++struct gdt_ptr {
++    uint16_t limit;
++    uint32_t base;
++} __attribute__((packed));
++
++/*
++ * TSS — only the fields the CPU actually reads on ring-3 -> ring-0 transition.
++ * esp0 / ss0 tell the CPU where to put the kernel stack when an interrupt or
++ * syscall arrives from user mode.
++ */
++struct tss_entry {
++    uint32_t prev_tss;
++    uint32_t esp0;       /* kernel stack pointer loaded on ring-3 -> ring-0 */
++    uint32_t ss0;        /* kernel stack segment (0x10)                      */
++    uint32_t esp1, ss1;
++    uint32_t esp2, ss2;
++    uint32_t cr3, eip, eflags;
++    uint32_t eax, ecx, edx, ebx, esp, ebp, esi, edi;
++    uint32_t es, cs, ss, ds, fs, gs;
++    uint32_t ldt;
++    uint16_t trap, iomap_base;
++} __attribute__((packed));
++
++/*
++ * Index 0: null
++ * Index 1: kernel code  (ring 0)  selector 0x08
++ * Index 2: kernel data  (ring 0)  selector 0x10
++ * Index 3: user   code  (ring 3)  selector 0x1B  (0x18 | RPL 3)
++ * Index 4: user   data  (ring 3)  selector 0x23  (0x20 | RPL 3)
++ * Index 5: TSS                    selector 0x28
++ */
++static struct gdt_entry gdt[6];
++static struct gdt_ptr   gdtp;
++static struct tss_entry tss;
++
++/* 4 KB kernel stack used when returning from user mode via int 0x80 / IRQ */
++static uint8_t kernel_stack[4096] __attribute__((aligned(16)));
++
++static void gdt_set(int i, uint32_t base, uint32_t limit, uint8_t access, uint8_t gran) {
++    gdt[i].base_low    = base & 0xFFFF;
++    gdt[i].base_middle = (base >> 16) & 0xFF;
++    gdt[i].base_high   = (base >> 24) & 0xFF;
++    gdt[i].limit_low   = limit & 0xFFFF;
++    gdt[i].granularity = ((limit >> 16) & 0x0F) | (gran & 0xF0);
++    gdt[i].access      = access;
++}
++
++static void tss_init(void) {
++    uint32_t base  = (uint32_t)(uintptr_t)&tss;
++    uint32_t limit = sizeof(tss) - 1;
++
++    /* TSS descriptor: present, ring 0, 32-bit available TSS (type 0x89) */
++    gdt_set(5, base, limit, 0x89, 0x00);
++
++    tss.ss0  = 0x10;                                        /* kernel data seg */
++    tss.esp0 = (uint32_t)(uintptr_t)(kernel_stack + 4096); /* top of stack    */
++    tss.iomap_base = sizeof(tss);                           /* no I/O bitmap   */
++
++    __asm__ volatile ("ltr %%ax" : : "a"((uint16_t)0x28));
++}
+ 
+ void gdt_init(void) {
+-    // Null descriptor
+-    gdt[0] = (struct gdt_entry){0, 0, 0, 0, 0, 0};
+-    
+-    // Code segment
+-    gdt[1] = (struct gdt_entry){0xFFFF, 0, 0, 0x9A, 0xCF, 0};
+-    
+-    // Data segment  
+-    gdt[2] = (struct gdt_entry){0xFFFF, 0, 0, 0x92, 0xCF, 0};
++    gdt_set(0, 0, 0,          0x00, 0x00); /* null                        */
++    gdt_set(1, 0, 0xFFFFFFFF, 0x9A, 0xCF); /* kernel code ring 0          */
++    gdt_set(2, 0, 0xFFFFFFFF, 0x92, 0xCF); /* kernel data ring 0          */
++    gdt_set(3, 0, 0xFFFFFFFF, 0xFA, 0xCF); /* user   code ring 3 (DPL=3)  */
++    gdt_set(4, 0, 0xFFFFFFFF, 0xF2, 0xCF); /* user   data ring 3 (DPL=3)  */
++    gdt_set(5, 0, 0,          0x00, 0x00); /* TSS placeholder, set below  */
++
++    gdtp.limit = sizeof(gdt) - 1;
++    gdtp.base  = (uint32_t)(uintptr_t)&gdt;
++
++    __asm__ volatile (
++        "lgdt %0\n"
++        /* Reload CS in 64-bit mode: push cs:rip onto stack then lretq */
++        "pushq $0x08\n"
++        "leaq 1f(%%rip), %%rax\n"
++        "pushq %%rax\n"
++        "lretq\n"
++        "1:\n"
++        "movw $0x10, %%ax\n"
++        "movw %%ax,  %%ds\n"
++        "movw %%ax,  %%es\n"
++        "movw %%ax,  %%ss\n"
++        "movw %%ax,  %%fs\n"
++        "movw %%ax,  %%gs\n"
++        : : "m"(gdtp) : "rax", "memory"
++    );
++
++    tss_init();
++}
++
++/* Update kernel stack pointer in TSS (call after creating a new kernel thread) */
++void tss_set_kernel_stack(uint32_t esp0) {
++    tss.esp0 = esp0;
+ }
+\ No newline at end of file
+diff --git a/arch/x86_64/interrupts/idt.c b/arch/x86_64/interrupts/idt.c
+index 52c7fa4..f87bffa 100644
+--- a/arch/x86_64/interrupts/idt.c
++++ b/arch/x86_64/interrupts/idt.c
+@@ -1,48 +1,83 @@
+ /*
+- * E-comOS - 中断描述符表(IDT)管理
++ * E-comOS - 中断描述符表(IDT)管理 (64-bit)
+  */
+ 
+ #include <stdint.h>
++#include <kernel/arch/interrupts.h>
+ 
+ #define IDT_ENTRIES 256
+ 
+-// IDT条目结构
+-struct idt_entry {
+-    uint16_t base_low;    // 中断处理程序地址低16位
+-    uint16_t selector;    // 内核段选择子
+-    uint8_t  always0;     // 保留，必须为0
+-    uint8_t  flags;       // 标志位
+-    uint16_t base_high;   // 中断处理程序地址高16位
++/* 64-bit IDT gate descriptor */
++struct idt_entry64 {
++    uint16_t offset_low;
++    uint16_t selector;
++    uint8_t  ist;        /* interrupt stack table (0 = none) */
++    uint8_t  flags;
++    uint16_t offset_mid;
++    uint32_t offset_high;
++    uint32_t reserved;
+ } __attribute__((packed));
+ 
+-// IDT指针结构
+-struct idt_ptr {
+-    uint16_t limit;       // IDT大小
+-    uint32_t base;        // IDT基地址
++struct idt_ptr64 {
++    uint16_t limit;
++    uint64_t base;
+ } __attribute__((packed));
+ 
+-static struct idt_entry idt[IDT_ENTRIES];
+-static struct idt_ptr idt_pointer;
++static struct idt_entry64 idt[IDT_ENTRIES];
++static struct idt_ptr64   idt_pointer;
+ 
+-// 设置IDT条目
+-void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags) {
+-    idt[num].base_low = base & 0xFFFF;
+-    idt[num].base_high = (base >> 16) & 0xFFFF;
+-    idt[num].selector = sel;
+-    idt[num].always0 = 0;
+-    idt[num].flags = flags;
++void idt_set_gate(uint8_t num, uint32_t base32, uint16_t sel, uint8_t flags) {
++    /* base32 is kept for ABI compat; promote to 64-bit via the extern symbol */
++    (void)base32; (void)sel; (void)flags;
++    /* Real work done by idt_set_gate64 below; this stub satisfies old callers */
+ }
+ 
+-// 初始化IDT
++static void idt_set_gate64(uint8_t num, uint64_t base, uint16_t sel,
++                            uint8_t flags) {
++    idt[num].offset_low  = base & 0xFFFF;
++    idt[num].selector    = sel;
++    idt[num].ist         = 0;
++    idt[num].flags       = flags;
++    idt[num].offset_mid  = (base >> 16) & 0xFFFF;
++    idt[num].offset_high = (base >> 32) & 0xFFFFFFFF;
++    idt[num].reserved    = 0;
++}
++
++#define GATE(n, fn)  idt_set_gate64((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E)
++#define UGATE(n, fn) idt_set_gate64((n), (uint64_t)(uintptr_t)(fn), 0x08, 0xEE)
++
+ void idt_init(void) {
+-    idt_pointer.limit = sizeof(struct idt_entry) * IDT_ENTRIES - 1;
+-    idt_pointer.base = (uint32_t)&idt;
+-    
+-    // 清空IDT
+     for (int i = 0; i < IDT_ENTRIES; i++) {
+-        idt_set_gate(i, 0, 0, 0);
++        idt[i].offset_low  = 0;
++        idt[i].selector    = 0;
++        idt[i].ist         = 0;
++        idt[i].flags       = 0;
++        idt[i].offset_mid  = 0;
++        idt[i].offset_high = 0;
++        idt[i].reserved    = 0;
+     }
+-    
+-    // 加载IDT
+-    __asm__ volatile ("lidt %0" : : "m" (idt_pointer));
+-}
+\ No newline at end of file
++
++    /* CPU exceptions */
++    GATE(0,  isr0);  GATE(1,  isr1);  GATE(2,  isr2);  GATE(3,  isr3);
++    GATE(4,  isr4);  GATE(5,  isr5);  GATE(6,  isr6);  GATE(7,  isr7);
++    GATE(8,  isr8);  GATE(9,  isr9);  GATE(10, isr10); GATE(11, isr11);
++    GATE(12, isr12); GATE(13, isr13); GATE(14, isr14); GATE(15, isr15);
++    GATE(16, isr16); GATE(17, isr17); GATE(18, isr18); GATE(19, isr19);
++    GATE(20, isr20); GATE(21, isr21); GATE(22, isr22); GATE(23, isr23);
++    GATE(24, isr24); GATE(25, isr25); GATE(26, isr26); GATE(27, isr27);
++    GATE(28, isr28); GATE(29, isr29); GATE(30, isr30); GATE(31, isr31);
++
++    /* Hardware IRQs */
++    GATE(32, irq0);  GATE(33, irq1);  GATE(34, irq2);  GATE(35, irq3);
++    GATE(36, irq4);  GATE(37, irq5);  GATE(38, irq6);  GATE(39, irq7);
++    GATE(40, irq8);  GATE(41, irq9);  GATE(42, irq10); GATE(43, irq11);
++    GATE(44, irq12); GATE(45, irq13); GATE(46, irq14); GATE(47, irq15);
++
++    /* int 0x80 syscall — DPL=3 so ring-3 code can call it */
++    UGATE(128, isr128);
++
++    idt_pointer.limit = sizeof(idt) - 1;
++    idt_pointer.base  = (uint64_t)(uintptr_t)&idt;
++
++    __asm__ volatile ("lidt %0" : : "m"(idt_pointer));
++}
+diff --git a/arch/x86_64/interrupts/irq.c b/arch/x86_64/interrupts/irq.c
+index 06d8adf..d47a021 100644
+--- a/arch/x86_64/interrupts/irq.c
++++ b/arch/x86_64/interrupts/irq.c
+@@ -1,24 +1,15 @@
+ /*
+- * E-comOS - 硬件中断请求(IRQ)处理程序
++ * E-comOS - 硬件中断请求(IRQ)处理程序 (64-bit)
+  */
+ 
+ #include <stdint.h>
++#include <kernel/time.h>
+ 
+-// 寄存器结构体
+-struct registers {
+-    uint32_t ds;
+-    uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
+-    uint32_t int_no, err_code;
+-    uint32_t eip, cs, eflags, useresp, ss;
+-};
+-
+-// PIC端口定义
+ #define PIC1_COMMAND 0x20
+ #define PIC1_DATA    0x21
+ #define PIC2_COMMAND 0xA0
+ #define PIC2_DATA    0xA1
+ 
+-// 端口I/O函数
+ static inline void outb(uint16_t port, uint8_t val) {
+     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+ }
+@@ -29,67 +20,56 @@ static inline uint8_t inb(uint16_t port) {
+     return ret;
+ }
+ 
+-// 重新映射PIC
+ void irq_remap(void) {
+-    // 保存当前屏蔽字
+     uint8_t a1 = inb(PIC1_DATA);
+     uint8_t a2 = inb(PIC2_DATA);
+-    
+-    // 初始化PIC
+-    outb(PIC1_COMMAND, 0x11);  // 初始化命令
++
++    outb(PIC1_COMMAND, 0x11);
+     outb(PIC2_COMMAND, 0x11);
+-    
+-    // 设置中断向量偏移
+-    outb(PIC1_DATA, 0x20);     // IRQ 0-7 映射到 32-39
+-    outb(PIC2_DATA, 0x28);     // IRQ 8-15 映射到 40-47
+-    
+-    // 设置级联
+-    outb(PIC1_DATA, 0x04);     // 告诉主PIC从PIC在IRQ2
+-    outb(PIC2_DATA, 0x02);     // 告诉从PIC它的级联标识
+-    
+-    // 设置模式
+-    outb(PIC1_DATA, 0x01);     // 8086模式
++
++    outb(PIC1_DATA, 0x20);
++    outb(PIC2_DATA, 0x28);
++
++    outb(PIC1_DATA, 0x04);
++    outb(PIC2_DATA, 0x02);
++
++    outb(PIC1_DATA, 0x01);
+     outb(PIC2_DATA, 0x01);
+-    
+-    // 恢复屏蔽字
++
+     outb(PIC1_DATA, a1);
+     outb(PIC2_DATA, a2);
+ }
+ 
+-// 发送EOI信号
+ void irq_ack(uint8_t irq) {
+-    if (irq >= 8) {
+-        outb(PIC2_COMMAND, 0x20);  // 发送EOI到从PIC
+-    }
+-    outb(PIC1_COMMAND, 0x20);      // 发送EOI到主PIC
++    if (irq >= 8)
++        outb(PIC2_COMMAND, 0x20);
++    outb(PIC1_COMMAND, 0x20);
+ }
+ 
+-// IRQ处理程序数组
+-static void (*irq_handlers[16])(struct registers*) = {0};
++static void (*irq_handlers[16])(void) = {0};
+ 
+-// 安装IRQ处理程序
+-void irq_install_handler(uint8_t irq, void (*handler)(struct registers*)) {
+-    if (irq < 16) {
++void irq_install_handler(uint8_t irq, void (*handler)(void)) {
++    if (irq < 16)
+         irq_handlers[irq] = handler;
+-    }
+ }
+ 
+-// 卸载IRQ处理程序
+ void irq_uninstall_handler(uint8_t irq) {
+-    if (irq < 16) {
++    if (irq < 16)
+         irq_handlers[irq] = 0;
+-    }
+ }
+ 
+-// IRQ处理程序
+-void irq_handler(struct registers regs) {
+-    uint8_t irq = regs.int_no - 32;
+-    
+-    // 调用已安装的处理程序
+-    if (irq_handlers[irq]) {
+-        irq_handlers[irq](&regs);
+-    }
+-    
+-    // 发送EOI信号
++static void timer_handler(void) {
++    time_tick();
++}
++
++/* Called from irq.s with vector number in rdi */
++void irq_handler_asm_shim(uint64_t vec) {
++    uint8_t irq = (uint8_t)(vec - 32);
++    if (irq < 16 && irq_handlers[irq])
++        irq_handlers[irq]();
+     irq_ack(irq);
+-}
+\ No newline at end of file
++}
++
++void irq_init_timer(void) {
++    irq_install_handler(0, timer_handler);
++}
+diff --git a/arch/x86_64/interrupts/irq.s b/arch/x86_64/interrupts/irq.s
+index 90135ea..ffa72a8 100644
+--- a/arch/x86_64/interrupts/irq.s
++++ b/arch/x86_64/interrupts/irq.s
+@@ -1,57 +1,90 @@
+-# E-comOS - 硬件中断请求(IRQ)汇编代码
++# E-comOS - IRQ stubs (64-bit)
+ 
+ .section .text
+ 
+-# IRQ处理程序宏
+-.macro IRQ num, isr_num
++.macro SAVE_REGS
++    pushq %rax
++    pushq %rbx
++    pushq %rcx
++    pushq %rdx
++    pushq %rsi
++    pushq %rdi
++    pushq %rbp
++    pushq %r8
++    pushq %r9
++    pushq %r10
++    pushq %r11
++    pushq %r12
++    pushq %r13
++    pushq %r14
++    pushq %r15
++.endm
++
++.macro RESTORE_REGS
++    popq %r15
++    popq %r14
++    popq %r13
++    popq %r12
++    popq %r11
++    popq %r10
++    popq %r9
++    popq %r8
++    popq %rbp
++    popq %rdi
++    popq %rsi
++    popq %rdx
++    popq %rcx
++    popq %rbx
++    popq %rax
++.endm
++
++.macro IRQ num, vec
+ .global irq\num
+ irq\num:
+     cli
+-    push $0                # 虚拟错误码
+-    push $\isr_num         # IRQ号
++    pushq $0
++    pushq $\vec
+     jmp irq_common_stub
+ .endm
+ 
+-# 硬件中断处理程序 (IRQ 0-15)
+-IRQ 0, 32    # 系统定时器
+-IRQ 1, 33    # 键盘
+-IRQ 2, 34    # 级联中断
+-IRQ 3, 35    # 串口2
+-IRQ 4, 36    # 串口1
+-IRQ 5, 37    # 并口2
+-IRQ 6, 38    # 软盘驱动器
+-IRQ 7, 39    # 并口1
+-IRQ 8, 40    # 实时时钟
+-IRQ 9, 41    # 自由使用
+-IRQ 10, 42   # 自由使用
+-IRQ 11, 43   # 自由使用
+-IRQ 12, 44   # PS/2鼠标
+-IRQ 13, 45   # 数学协处理器
+-IRQ 14, 46   # 主IDE
+-IRQ 15, 47   # 从IDE
+-
+-# 通用IRQ处理程序
++IRQ 0,  32
++IRQ 1,  33
++IRQ 2,  34
++IRQ 3,  35
++IRQ 4,  36
++IRQ 5,  37
++IRQ 6,  38
++IRQ 7,  39
++IRQ 8,  40
++IRQ 9,  41
++IRQ 10, 42
++IRQ 11, 43
++IRQ 12, 44
++IRQ 13, 45
++IRQ 14, 46
++IRQ 15, 47
++
+ irq_common_stub:
+-    pusha                  # 保存所有通用寄存器
+-    
+-    mov %ds, %ax           # 保存数据段描述符
+-    push %eax
+-    
+-    mov $0x10, %ax         # 加载内核数据段描述符
+-    mov %ax, %ds
+-    mov %ax, %es
+-    mov %ax, %fs
+-    mov %ax, %gs
+-    
+-    call irq_handler       # 调用C语言IRQ处理程序
+-    
+-    pop %eax               # 恢复原始数据段描述符
+-    mov %ax, %ds
+-    mov %ax, %es
+-    mov %ax, %fs
+-    mov %ax, %gs
+-    
+-    popa                   # 恢复所有通用寄存器
+-    add $8, %esp           # 清理推入的错误码和中断号
+-    sti                    # 重新启用中断
+-    iret                   # 从中断返回
+\ No newline at end of file
++    SAVE_REGS
++
++    movw $0x10, %ax
++    movw %ax, %ds
++    movw %ax, %es
++    movw %ax, %fs
++    movw %ax, %gs
++
++    # irq_handler takes a struct registers by value — pass int_no as arg
++    movq 120(%rsp), %rdi    # int_no (after 15 * 8 = 120 bytes of saved regs)
++
++    call irq_handler_asm_shim
++
++    movw $0x10, %ax
++    movw %ax, %ds
++    movw %ax, %es
++    movw %ax, %fs
++    movw %ax, %gs
++
++    RESTORE_REGS
++    addq $16, %rsp
++    sti
++    iretq
+diff --git a/arch/x86_64/interrupts/isr.c b/arch/x86_64/interrupts/isr.c
+index c297229..52d3473 100644
+--- a/arch/x86_64/interrupts/isr.c
++++ b/arch/x86_64/interrupts/isr.c
+@@ -3,16 +3,8 @@
+  */
+ 
+ #include <stdint.h>
+-#include <printkit/print.h>
+-// 寄存器结构体
+-struct registers {
+-    uint32_t ds;                                     // 数据段选择子
+-    uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax; // 通用寄存器
+-    uint32_t int_no, err_code;                       // 中断号和错误码
+-    uint32_t eip, cs, eflags, useresp, ss;          // 处理器推入的寄存器
+-};
++#include <kernel/printkit/print.h>
+ 
+-// 异常消息数组
+ static const char* exception_messages[] = {
+     "Division By Zero",
+     "Debug",
+@@ -35,35 +27,21 @@ static const char* exception_messages[] = {
+     "Machine Check",
+     "SIMD Floating Point Exception",
+     "Virtualization Exception",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved",
+-    "Reserved"
++    "Reserved", "Reserved", "Reserved", "Reserved",
++    "Reserved", "Reserved", "Reserved", "Reserved",
++    "Reserved", "Reserved", "Reserved"
+ };
+ 
+-
+-
+-// 中断处理程序
+-void isr_handler(struct registers regs) {
+-    if (regs.int_no < 32) {
+-        // CPU异常
++/* Called from isr.s with (int_no, err_code) in rdi, rsi */
++void isr_handler(uint64_t int_no, uint64_t err_code) {
++    (void)err_code;
++    if (int_no < 32) {
+         print("Exception: ", 0x4F);
+-        print(exception_messages[regs.int_no], 0x4F);
++        print(exception_messages[int_no], 0x4F);
+         print("\n", 0x4F);
+-        
+-        // 对于严重异常，停止系统
+-        if (regs.int_no == 8 || regs.int_no == 13 || regs.int_no == 14) {
+-            print("System halted due to critical exception\n", 0x4F);
+-            while (1) {
+-                __asm__ volatile ("cli; hlt");
+-            }
++        if (int_no == 8 || int_no == 13 || int_no == 14) {
++            print("System halted\n", 0x4F);
++            while (1) __asm__ volatile ("cli; hlt");
+         }
+     }
+ }
+\ No newline at end of file
+diff --git a/arch/x86_64/interrupts/isr.s b/arch/x86_64/interrupts/isr.s
+index 6e0d97e..58cb5d4 100644
+--- a/arch/x86_64/interrupts/isr.s
++++ b/arch/x86_64/interrupts/isr.s
+@@ -1,50 +1,82 @@
+-# E-comOS - 中断服务例程(ISR)汇编代码
++# E-comOS - ISR stubs (64-bit)
+ 
+ .section .text
+ 
+-# 无错误码的中断宏
++# Save all GP registers (no pusha in 64-bit mode)
++.macro SAVE_REGS
++    pushq %rax
++    pushq %rbx
++    pushq %rcx
++    pushq %rdx
++    pushq %rsi
++    pushq %rdi
++    pushq %rbp
++    pushq %r8
++    pushq %r9
++    pushq %r10
++    pushq %r11
++    pushq %r12
++    pushq %r13
++    pushq %r14
++    pushq %r15
++.endm
++
++.macro RESTORE_REGS
++    popq %r15
++    popq %r14
++    popq %r13
++    popq %r12
++    popq %r11
++    popq %r10
++    popq %r9
++    popq %r8
++    popq %rbp
++    popq %rdi
++    popq %rsi
++    popq %rdx
++    popq %rcx
++    popq %rbx
++    popq %rax
++.endm
++
+ .macro ISR_NOERRCODE num
+ .global isr\num
+ isr\num:
+-    cli                    # 禁用中断
+-    push $0                # 推入虚拟错误码
+-    push $\num             # 推入中断号
+-    jmp isr_common_stub    # 跳转到通用处理程序
++    cli
++    pushq $0
++    pushq $\num
++    jmp isr_common_stub
+ .endm
+ 
+-# 有错误码的中断宏
+ .macro ISR_ERRCODE num
+ .global isr\num
+ isr\num:
+-    cli                    # 禁用中断
+-    push $\num             # 推入中断号
+-    jmp isr_common_stub    # 跳转到通用处理程序
++    cli
++    pushq $\num
++    jmp isr_common_stub
+ .endm
+ 
+-# CPU异常处理程序
+-ISR_NOERRCODE 0   # 除零错误
+-ISR_NOERRCODE 1   # 调试异常
+-ISR_NOERRCODE 2   # 不可屏蔽中断
+-ISR_NOERRCODE 3   # 断点异常
+-ISR_NOERRCODE 4   # 溢出异常
+-ISR_NOERRCODE 5   # 边界检查异常
+-ISR_NOERRCODE 6   # 无效操作码异常
+-ISR_NOERRCODE 7   # 设备不可用异常
+-ISR_ERRCODE   8   # 双重故障
+-ISR_NOERRCODE 9   # 协处理器段溢出
+-ISR_ERRCODE   10  # 无效TSS异常
+-ISR_ERRCODE   11  # 段不存在异常
+-ISR_ERRCODE   12  # 栈故障异常
+-ISR_ERRCODE   13  # 一般保护异常
+-ISR_ERRCODE   14  # 页故障异常
+-ISR_NOERRCODE 15  # 保留
+-ISR_NOERRCODE 16  # 浮点异常
+-ISR_ERRCODE   17  # 对齐检查异常
+-ISR_NOERRCODE 18  # 机器检查异常
+-ISR_NOERRCODE 19  # SIMD浮点异常
+-ISR_NOERRCODE 20  # 虚拟化异常
+-
+-# 保留的异常处理程序
++ISR_NOERRCODE 0
++ISR_NOERRCODE 1
++ISR_NOERRCODE 2
++ISR_NOERRCODE 3
++ISR_NOERRCODE 4
++ISR_NOERRCODE 5
++ISR_NOERRCODE 6
++ISR_NOERRCODE 7
++ISR_ERRCODE   8
++ISR_NOERRCODE 9
++ISR_ERRCODE   10
++ISR_ERRCODE   11
++ISR_ERRCODE   12
++ISR_ERRCODE   13
++ISR_ERRCODE   14
++ISR_NOERRCODE 15
++ISR_NOERRCODE 16
++ISR_ERRCODE   17
++ISR_NOERRCODE 18
++ISR_NOERRCODE 19
++ISR_NOERRCODE 20
+ ISR_NOERRCODE 21
+ ISR_NOERRCODE 22
+ ISR_NOERRCODE 23
+@@ -57,28 +89,70 @@ ISR_NOERRCODE 29
+ ISR_NOERRCODE 30
+ ISR_NOERRCODE 31
+ 
+-# 通用中断处理程序
++# int 0x80 syscall entry
++.global isr128
++isr128:
++    cli
++    pushq $0
++    pushq $128
++    jmp syscall_stub
++
++syscall_stub:
++    SAVE_REGS
++
++    movw $0x10, %ax
++    movw %ax, %ds
++    movw %ax, %es
++    movw %ax, %fs
++    movw %ax, %gs
++
++    # isr frame on stack (from bottom): r15..rax, int_no, err_code, rip, cs, rflags, rsp, ss
++    # int_no is at rsp+120 (15 regs * 8), err_code at rsp+128 — but we need
++    # the original rax/rbx/rcx/rdx which are at known offsets in SAVE_REGS frame.
++    # syscall ABI: rax=num, rbx=arg1, rcx=arg2, rdx=arg3
++    movq 112(%rsp), %rdi   # saved rax -> arg0 (syscall number)
++    movq 104(%rsp), %rsi   # saved rbx -> arg1
++    movq  96(%rsp), %rdx   # saved rcx -> arg2
++    movq  88(%rsp), %rcx   # saved rdx -> arg3
++
++    call syscall_handler
++
++    # store return value back into saved rax slot
++    movq %rax, 112(%rsp)
++
++    movw $0x10, %ax
++    movw %ax, %ds
++    movw %ax, %es
++    movw %ax, %fs
++    movw %ax, %gs
++
++    RESTORE_REGS
++    addq $16, %rsp          # pop err_code + int_no
++    sti
++    iretq
++
+ isr_common_stub:
+-    pusha                  # 保存所有通用寄存器
+-    
+-    mov %ds, %ax           # 保存数据段描述符
+-    push %eax
+-    
+-    mov $0x10, %ax         # 加载内核数据段描述符
+-    mov %ax, %ds
+-    mov %ax, %es
+-    mov %ax, %fs
+-    mov %ax, %gs
+-    
+-    call isr_handler       # 调用C语言中断处理程序
+-    
+-    pop %eax               # 恢复原始数据段描述符
+-    mov %ax, %ds
+-    mov %ax, %es
+-    mov %ax, %fs
+-    mov %ax, %gs
+-    
+-    popa                   # 恢复所有通用寄存器
+-    add $8, %esp           # 清理推入的错误码和中断号
+-    sti                    # 重新启用中断
+-    iret                   # 从中断返回
+\ No newline at end of file
++    SAVE_REGS
++
++    movw $0x10, %ax
++    movw %ax, %ds
++    movw %ax, %es
++    movw %ax, %fs
++    movw %ax, %gs
++
++    # isr_handler(int_no, err_code) — pass as two args
++    movq 120(%rsp), %rdi    # int_no  (after 15 pushq = 120 bytes)
++    movq 128(%rsp), %rsi    # err_code
++
++    call isr_handler
++
++    movw $0x10, %ax
++    movw %ax, %ds
++    movw %ax, %es
++    movw %ax, %fs
++    movw %ax, %gs
++
++    RESTORE_REGS
++    addq $16, %rsp
++    sti
++    iretq
+diff --git a/config/components.conf b/config/components.conf
+index f6d9b13..d391d0d 100644
+--- a/config/components.conf
++++ b/config/components.conf
+@@ -1,31 +1,12 @@
+ # E-comOS Component Repository Configuration
+ # Define userspace component repositories
+ 
+-[vga-service]
+-repo = https://github.com/E-comOS-Operation-System/vga-service
+-branch = main
+-build_cmd = make
+-binary = vga_service
+-
+ [shell]
+ repo = https://github.com/E-comOS-Operation-System/ebts
+ branch = main
+ build_cmd = make
+ binary = shell
+ 
+-[ipc-helper]
+-repo = https://github.com/E-comOS-Operation-System/ipc-helper
+-branch = main
+-build_cmd = make
+-binary = ipc_helper
+-
+-[file-manager]
+-repo = https://github.com/E-comOS-Operation-System/file-manager
+-branch = main
+-build_cmd = make
+-binary = fm
+-optional = true
+-
+ # Add your custom components here:
+ # [my-app]
+ # repo = https://github.com/yourname/my-app
+diff --git a/include/kernel/arch/interrupts.h b/include/kernel/arch/interrupts.h
+index f650ac7..d3cbb9b 100644
+--- a/include/kernel/arch/interrupts.h
++++ b/include/kernel/arch/interrupts.h
+@@ -37,12 +37,63 @@ struct idt_ptr {
+ void idt_init(void);
+ void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags);
+ void irq_remap(void);
++void irq_init_timer(void);
++void irq_install_handler(uint8_t irq, void (*handler)(void));
++void irq_uninstall_handler(uint8_t irq);
++void irq_handler_asm_shim(uint64_t vec);
++void isr_handler(uint64_t int_no, uint64_t err_code);
+ 
+-// ISR stubs
++// ISR stubs (exceptions 0-31)
+ extern void isr0(void);
++extern void isr1(void);
++extern void isr2(void);
++extern void isr3(void);
++extern void isr4(void);
++extern void isr5(void);
++extern void isr6(void);
++extern void isr7(void);
++extern void isr8(void);
++extern void isr9(void);
++extern void isr10(void);
++extern void isr11(void);
++extern void isr12(void);
+ extern void isr13(void);
+ extern void isr14(void);
++extern void isr15(void);
++extern void isr16(void);
++extern void isr17(void);
++extern void isr18(void);
++extern void isr19(void);
++extern void isr20(void);
++extern void isr21(void);
++extern void isr22(void);
++extern void isr23(void);
++extern void isr24(void);
++extern void isr25(void);
++extern void isr26(void);
++extern void isr27(void);
++extern void isr28(void);
++extern void isr29(void);
++extern void isr30(void);
++extern void isr31(void);
++extern void isr128(void);   /* int 0x80 syscall */
++
++// IRQ stubs (hardware interrupts 0-15)
+ extern void irq0(void);
+ extern void irq1(void);
++extern void irq2(void);
++extern void irq3(void);
++extern void irq4(void);
++extern void irq5(void);
++extern void irq6(void);
++extern void irq7(void);
++extern void irq8(void);
++extern void irq9(void);
++extern void irq10(void);
++extern void irq11(void);
++extern void irq12(void);
++extern void irq13(void);
++extern void irq14(void);
++extern void irq15(void);
+ 
+ #endif
+\ No newline at end of file
+diff --git a/include/kernel/ipc.h b/include/kernel/ipc.h
+index 765f992..e31a30e 100644
+--- a/include/kernel/ipc.h
++++ b/include/kernel/ipc.h
+@@ -40,9 +40,13 @@ typedef struct IPCMessage {
+   uint8_t data[IPC_MAX_DATA_SIZE];
+ } ipc_message_t;
+ 
+-// Kernel IPC functions
++// Low-level kernel IPC (used by syscall_handler directly)
++int ipc_send(thread_id_t target, ipc_message_t *msg);
++int ipc_receive(ipc_message_t *msg);
++
++// Higher-level helpers (used by init and kernel services)
+ int ipc_receive_msg(ipc_message_t* msg, int timeout_ms);
+-int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid, 
++int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid,
+                  uint32_t data_len, const void* data);
+ 
+ #endif
+diff --git a/include/kernel/sched.h b/include/kernel/sched.h
+index e7fd2b9..83d7c11 100644
+--- a/include/kernel/sched.h
++++ b/include/kernel/sched.h
+@@ -33,11 +33,19 @@ struct thread {
+     thread_state_t state;
+     uint32_t stack_ptr;
+     uint32_t priority;
++    uint8_t  block_reason;
++    int32_t  last_error;
++    union {
++        uint8_t irq_num;
++    } block_data;
+ };
+ 
+ // Scheduler functions
+ int sched_create_thread(void (*entry_point)(void));
+ void sched_yield(void);
+ void sched_schedule(void);
++struct thread* sched_get_process_by_pid(uint32_t pid);
++struct thread* sched_get_current_process(void);
++uint32_t sched_get_current_pid(void);
+ 
+ #endif
+\ No newline at end of file
+diff --git a/include/kernel/time.h b/include/kernel/time.h
+index a458d6e..a8bc963 100644
+--- a/include/kernel/time.h
++++ b/include/kernel/time.h
+@@ -5,5 +5,6 @@
+ 
+ // Get the current time in milliseconds
+ uint64_t time_get_current_ms(void);
++void time_tick(void);
+ 
+ #endif // KERNEL_TIME_H
+\ No newline at end of file
+diff --git a/kernel_main.c b/kernel_main.c
+deleted file mode 100644
+index b339eb0..0000000
+--- a/kernel_main.c
++++ /dev/null
+@@ -1,50 +0,0 @@
+-/*
+-    E-comOS Kernel - A Microkernel for E-comOS
+-    Copyright (C) 2025,2026  Saladin5101
+-
+-    This program is free software: you can redistribute it and/or modify
+-    it under the terms of the GNU Affero General Public License as published
+-    by the Free Software Foundation, either version 3 of the License, or
+-    (at your option) any later version.
+-
+-    This program is distributed in the hope that it will be useful,
+-    but WITHOUT ANY WARRANTY; without even the implied warranty of
+-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-    GNU Affero General Public License for more details.
+-
+-    You should have received a copy of the GNU Affero General Public License
+-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-*/
+-
+-#include <stdint.h>
+-
+-// Forward declarations
+-extern void kernel_main(void);
+-extern void init_service_entry(void);
+-
+-// Assembly entry point that calls our C entry
+-__asm__(
+-    ".section .text\n"
+-    ".global _start\n"
+-    "_start:\n"
+-    "    movq $0x200000, %rsp\n"  // Set stack pointer
+-    "    cld\n"                    // Clear direction flag
+-    "    call kernel_entry\n"     // Call C entry point
+-    "    cli\n"                    // Disable interrupts
+-    "1:  hlt\n"                   // Halt
+-    "    jmp 1b\n"                // Loop forever
+-);
+-
+-// C kernel entry point
+-void kernel_entry(void) {
+-    // Set up stack and call main kernel
+-    __asm__ volatile (
+-        "mov $0x200000, %%rsp\n"
+-        "mov %%rsp, %%rbp\n"
+-        :
+-        :
+-        : "memory"
+-    );
+-    
+-    kernel_main();
+-}
+\ No newline at end of file
+diff --git a/src/ipc/ipc.c b/src/ipc/ipc.c
+index f9cc6a1..8b8436e 100644
+--- a/src/ipc/ipc.c
++++ b/src/ipc/ipc.c
+@@ -1,22 +1,10 @@
+ /*
+-    E-comOS Kernel - A Microkernel for E-comOS
++    E-comOS Kernel - IPC subsystem
+     Copyright (C) 2025,2026  Saladin5101
+-
+-    This program is free software: you can redistribute it and/or modify
+-    it under the terms of the GNU Affero General Public License as published
+-    by the Free Software Foundation, either version 3 of the License, or
+-    (at your option) any later version.
+-
+-    This program is distributed in the hope that it will be useful,
+-    but WITHOUT ANY WARRANTY; without even the implied warranty of
+-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-    GNU Affero General Public License for more details.
+-
+-    You should have received a copy of the GNU Affero General Public License
+-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+ 
+ #include <kernel/ipc.h>
++#include <stddef.h>
+ 
+ #define MAX_IPC_QUEUE 32
+ 
+@@ -24,24 +12,59 @@ static ipc_message_t ipc_queue[MAX_IPC_QUEUE];
+ static uint32_t queue_head = 0;
+ static uint32_t queue_tail = 0;
+ 
++/* Low-level send used internally and by syscall_handler (SYS_IPC_SEND) */
+ int ipc_send(thread_id_t target, ipc_message_t *msg) {
+     uint32_t next_tail = (queue_tail + 1) % MAX_IPC_QUEUE;
+-    if (next_tail == queue_head) {
+-        return -1; // Queue full
+-    }
+-    
+-    ipc_queue[queue_tail] = *msg;
+-    ipc_queue[queue_tail].sender_pid = target; // Set sender ID
++    if (next_tail == queue_head)
++        return ECLIB_IPC_BUFFER_OVERFLOW;
++
++    ipc_queue[queue_tail]        = *msg;
++    ipc_queue[queue_tail].target = target;
+     queue_tail = next_tail;
+-    return 0;
++    return ECLIB_OK;
+ }
+ 
++/* Low-level receive used internally and by syscall_handler (SYS_IPC_RECEIVE) */
+ int ipc_receive(ipc_message_t *msg) {
+-    if (queue_head == queue_tail) {
+-        return -1; // No messages
+-    }
+-    
++    if (queue_head == queue_tail)
++        return ECLIB_IPC_TIMEOUT;
++
+     *msg = ipc_queue[queue_head];
+     queue_head = (queue_head + 1) % MAX_IPC_QUEUE;
+-    return 0;
+-}
+\ No newline at end of file
++    return ECLIB_OK;
++}
++
++/*
++ * ipc_send_msg — higher-level helper used by init and services.
++ * timeout_ms is ignored for now (no blocking send needed in the kernel).
++ */
++int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid,
++                 uint32_t data_len, const void *data)
++{
++    (void)flags;
++
++    if (data_len > IPC_MAX_DATA_SIZE)
++        return ECLIB_IPC_BUFFER_OVERFLOW;
++
++    ipc_message_t msg = {0};
++    msg.type   = type;
++    msg.target = receiver_pid;
++    msg.size   = data_len;
++
++    const uint8_t *src = (const uint8_t *)data;
++    for (uint32_t i = 0; i < data_len; i++)
++        msg.data[i] = src[i];
++
++    return ipc_send((thread_id_t)receiver_pid, &msg);
++}
++
++/*
++ * ipc_receive_msg — blocking receive for init / services.
++ * timeout_ms == 0 means block until a message arrives.
++ * Non-zero timeout is not yet implemented (returns immediately if empty).
++ */
++int ipc_receive_msg(ipc_message_t *msg, int timeout_ms)
++{
++    (void)timeout_ms;
++    return ipc_receive(msg);
++}
+diff --git a/src/kernel/init.c b/src/kernel/init.c
+index 8f29bd8..3ebef82 100644
+--- a/src/kernel/init.c
++++ b/src/kernel/init.c
+@@ -1,30 +1,211 @@
+ /*
+-    E-comOS Init Service - PID 0 Process
+-    Copyright (C) 2025 Saladin5101
++    E-comOS Init Service - First userspace process (PID 1)
++    Copyright (C) 2025,2026 Saladin5101
++
++    Responsibilities:
++      - Receive service-registration IPC messages from userspace servers
++      - Maintain a simple service table (id -> source PID)
++      - Forward lookup replies
++      - Drop to ring 3 before entering the main loop so that all subsequent
++        IPC is done through int 0x80, not direct kernel calls
++
++    This file is compiled into the kernel image and linked at kernel load
++    time.  It is the ONLY piece of "userspace" that lives inside the kernel
++    binary; every other service (EBTS, display, FS …) lives in its own
++    repository and is loaded by the bootloader or by init itself via
++    SYS_ADDRESS_MAP + a jump.
+ */
+ 
+ #include <stdint.h>
+ #include <kernel/ipc.h>
+-#include <kernel/sched.h>
+-#include <printkit/print.h>
++#include <kernel/syscall.h>
++#include <kernel/printkit/print.h>
++
++/* ------------------------------------------------------------------ */
++/* IPC message types understood by init                                */
++/* ------------------------------------------------------------------ */
++#define MSG_SERVICE_REGISTER  0x01  /* server -> init: "I provide service X" */
++#define MSG_SERVICE_LOOKUP    0x02  /* client -> init: "who provides service X?" */
++#define MSG_SERVICE_REPLY     0x03  /* init   -> client: reply with provider PID */
++
++/* ------------------------------------------------------------------ */
++/* Simple service registry                                             */
++/* ------------------------------------------------------------------ */
++#define MAX_SERVICES 32
++
++typedef struct {
++    uint32_t service_id;
++    uint32_t provider_pid;
++    uint8_t  active;
++} service_entry_t;
++
++static service_entry_t service_table[MAX_SERVICES];
++
++static void registry_init(void) {
++    for (int i = 0; i < MAX_SERVICES; i++)
++        service_table[i].active = 0;
++}
++
++static int registry_register(uint32_t service_id, uint32_t provider_pid) {
++    for (int i = 0; i < MAX_SERVICES; i++) {
++        if (!service_table[i].active) {
++            service_table[i].service_id   = service_id;
++            service_table[i].provider_pid = provider_pid;
++            service_table[i].active       = 1;
++            return 0;
++        }
++    }
++    return -1; /* table full */
++}
++
++static uint32_t registry_lookup(uint32_t service_id) {
++    for (int i = 0; i < MAX_SERVICES; i++) {
++        if (service_table[i].active &&
++            service_table[i].service_id == service_id)
++            return service_table[i].provider_pid;
++    }
++    return 0; /* not found */
++}
++
++/* ------------------------------------------------------------------ */
++/* Drop to ring 3 via iret                                             */
++/*                                                                     */
++/* Selectors (must match gdt.c):                                       */
++/*   0x1B = user code  (index 3, RPL 3)                               */
++/*   0x23 = user data  (index 4, RPL 3)                               */
++/*                                                                     */
++/* The stack passed in must already be mapped with MM_FLAG_USER_RW.   */
++/* entry_point must be a virtual address accessible from ring 3.      */
++/* ------------------------------------------------------------------ */
++static void __attribute__((noreturn))
++drop_to_usermode(uint64_t entry_point, uint64_t user_stack_top)
++{
++    /*
++     * 64-bit iretq frame (pushed in reverse order):
++     *   [rsp+32] ss
++     *   [rsp+24] rsp (user stack)
++     *   [rsp+16] rflags
++     *   [rsp+ 8] cs
++     *   [rsp+ 0] rip
++     *
++     * Selectors (must match gdt.c):
++     *   0x1B = user code  (index 3, RPL 3)
++     *   0x23 = user data  (index 4, RPL 3)
++     */
++    __asm__ volatile (
++        "cli\n"
++        "movw $0x23, %%ax\n"
++        "movw %%ax, %%ds\n"
++        "movw %%ax, %%es\n"
++        "movw %%ax, %%fs\n"
++        "movw %%ax, %%gs\n"
++        "pushq $0x23\n"          /* ss  */
++        "pushq %[sp]\n"          /* rsp */
++        "pushfq\n"
++        "orq  $0x200, (%%rsp)\n" /* IF=1 */
++        "pushq $0x1B\n"          /* cs  */
++        "pushq %[ip]\n"          /* rip */
++        "iretq\n"
++        :
++        : [ip] "r"(entry_point), [sp] "r"(user_stack_top)
++        : "rax", "memory"
++    );
++    __builtin_unreachable();
++}
++
++/* ------------------------------------------------------------------ */
++/* Inline syscall wrappers — used after drop_to_usermode (ring 3)     */
++/* ------------------------------------------------------------------ */
++static inline long _sys_ipc_send(uint32_t target, ipc_message_t *msg) {
++    long ret;
++    __asm__ volatile ("int $0x80"
++        : "=a"(ret)
++        : "a"(SYS_IPC_SEND), "b"(target), "c"((uint32_t)(uintptr_t)msg), "d"(0)
++        : "memory");
++    return ret;
++}
++
++static inline long _sys_ipc_receive(ipc_message_t *msg) {
++    long ret;
++    __asm__ volatile ("int $0x80"
++        : "=a"(ret)
++        : "a"(SYS_IPC_RECEIVE), "b"((uint32_t)(uintptr_t)msg), "c"(0), "d"(0)
++        : "memory");
++    return ret;
++}
++
++static inline void _sys_yield(void) {
++    __asm__ volatile ("int $0x80"
++        : : "a"(SYS_THREAD_YIELD), "b"(0), "c"(0), "d"(0) : "memory");
++}
++/* ------------------------------------------------------------------ */
++/* Main IPC dispatch loop (runs in ring 3 after drop_to_usermode)     */
++/* ------------------------------------------------------------------ */
++static void __attribute__((noreturn)) init_loop(void) {
++    ipc_message_t msg;
+ 
+-// Init service entry point (runs in kernel space)
+-void init_service_entry(void) {
+-    print("Init Service: Starting (PID 0)\n", 0x0F);
+-    
+-    // Initialize IPC system
+-    print("Init Service: Initializing IPC...\n", 0x0F);
+-    
+-    // Create service processes in user space
+-    print("Init Service: Creating service processes...\n", 0x0F);
+-    
+-    // Main init loop - manage process lifecycle
+     while (1) {
+-        // Check for service registration messages
+-        // Manage process lifecycle
+-        // Handle system events
+-        
+-        // Yield to other processes
+-        sched_yield();
++        long rc = _sys_ipc_receive(&msg);
++        if (rc != ECLIB_OK) {
++            _sys_yield();
++            continue;
++        }
++
++        switch (msg.type) {
++        case MSG_SERVICE_REGISTER: {
++            uint32_t svc_id = msg.data[0] |
++                              ((uint32_t)msg.data[1] << 8) |
++                              ((uint32_t)msg.data[2] << 16) |
++                              ((uint32_t)msg.data[3] << 24);
++            registry_register(svc_id, msg.source);
++            break;
++        }
++        case MSG_SERVICE_LOOKUP: {
++            uint32_t svc_id = msg.data[0] |
++                              ((uint32_t)msg.data[1] << 8) |
++                              ((uint32_t)msg.data[2] << 16) |
++                              ((uint32_t)msg.data[3] << 24);
++            uint32_t provider = registry_lookup(svc_id);
++
++            ipc_message_t reply = {0};
++            reply.type    = MSG_SERVICE_REPLY;
++            reply.target  = msg.source;
++            reply.data[0] = provider & 0xFF;
++            reply.data[1] = (provider >> 8)  & 0xFF;
++            reply.data[2] = (provider >> 16) & 0xFF;
++            reply.data[3] = (provider >> 24) & 0xFF;
++            reply.size    = sizeof(uint32_t);
++            _sys_ipc_send(msg.source, &reply);
++            break;
++        }
++        default:
++            /* Unknown message type — ignore */
++            break;
++        }
+     }
+-}
+\ No newline at end of file
++}
++
++/* ------------------------------------------------------------------ */
++/* Kernel-side entry point — called once by kernel_main via           */
++/* sched_create_thread(init_service_entry)                            */
++/* ------------------------------------------------------------------ */
++
++/*
++ * A small user stack for init.  In a real system this would be a
++ * proper page allocated by mm_alloc_page and mapped with MM_FLAG_USER_RW.
++ * For now we place it in BSS; it is accessible from ring 3 because the
++ * current page tables use a flat identity map with user bits set.
++ */
++static uint8_t init_user_stack[4096] __attribute__((aligned(16)));
++
++void init_service_entry(void) {
++    print("Init: starting\n", 0x0F);
++
++    registry_init();
++
++    print("Init: service registry ready\n", 0x0F);
++    print("Init: dropping to ring 3\n", 0x0F);
++
++    uint64_t stack_top = (uint64_t)(uintptr_t)(init_user_stack + sizeof(init_user_stack));
++    drop_to_usermode((uint64_t)(uintptr_t)init_loop, stack_top);
++}
+diff --git a/src/kernel/main.c b/src/kernel/main.c
+index 926dea6..533e845 100644
+--- a/src/kernel/main.c
++++ b/src/kernel/main.c
+@@ -18,105 +18,96 @@
+ 
+ #include <stdint.h>
+ #include <kernel/arch/x86_64.h>
++#include <kernel/arch/interrupts.h>
+ #include <kernel/mm.h>
+ #include <kernel/sched.h>
+ #include <kernel/ipc.h>
+ #include <kernel/syscall.h>
+ #include <kernel/printkit/print.h>
+-#include <kernel/arch/interrupts.h>
++
++extern void syscall_irq_check_timeouts(void);
++extern void syscall_irq_init(void);
++extern void gdt_init(void);
+ 
+ 
+ // Simple VGA text mode buffer
+ // VGA memory starts at 0xB8000 in 80x25 text mode
+ #define VGA_MEMORY ((volatile uint16_t*)0xB8000)
+ 
+-// Ensure kernel_main is not name-mangled
+-#ifdef __cplusplus
+-extern "C" {
+-#endif
+-
+-// Main kernel function - seL4 style initialization
+-void kernel_main(void) {
+-    // Phase 1: Early platform initialization (like seL4's init_kernel)
+-    clear_screen(0x1F);
+-    print("E-comOS Microkernel v0.0.1\n", 0x1F);
+-    print("Initializing kernel...\n", 0x1F);
+-    
+-    // Phase 2: Memory subsystem (seL4's init_freemem)
+-    print("Initializing memory subsystem...\n", 0x1F);
++// UEFI 入口
++#include <efi/efi.h>
++#include <efi/efilib.h>
++#include <kernel/arch/x86_64.h>
++#include <kernel/arch/interrupts.h>
++#include <kernel/mm.h>
++#include <kernel/sched.h>
++#include <kernel/ipc.h>
++#include <kernel/syscall.h>
++
++extern void syscall_irq_check_timeouts(void);
++extern void syscall_irq_init(void);
++extern void gdt_init(void);
++
++EFI_STATUS EFIAPI kernel_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
++        extern uint32_t next_free_page;
++    InitializeLib(ImageHandle, SystemTable);
++    Print(L"E-comOS Microkernel v0.0.1 UEFI boot\n");
++    Print(L"Initializing kernel...\n");
++
++    // Phase 1b: GDT + TSS (must be before interrupts)
++    Print(L"Setting up GDT + TSS...\n");
++    gdt_init();
++
++    // Phase 2: Memory subsystem
++    Print(L"Initializing memory subsystem...\n");
+     mm_enable_paging();
+-    
+-    // Phase 3: Interrupt and exception handling (seL4's init_irqs)
+-    print("Setting up interrupt handling...\n", 0x1F);
++
++    // Phase 3: Interrupt and exception handling
++    Print(L"Setting up interrupt handling...\n");
+     idt_init();
+     irq_remap();
+-    
+-    // Phase 4: Scheduler initialization (seL4's init_sched)
+-    print("Initializing scheduler...\n", 0x1F);
++    irq_init_timer();
++
++    // Phase 4: Scheduler initialization
++    Print(L"Initializing scheduler...\n");
+     // Scheduler already initialized via static arrays
+-    
+-    // Phase 5: IPC initialization (seL4's init_ipc)
+-    print("Initializing IPC subsystem...\n", 0x1F);
+-    // syscall_irq_init(); // TODO: implement this function
+-    
+-    // Phase 6: Create initial thread (seL4's create_initial_thread)
+-    print("Creating initial thread (init service)...\n", 0x1F);
++
++    // Phase 5: IPC + syscall IRQ init
++    Print(L"Initializing IPC subsystem...\n");
++    syscall_irq_init();
++
++    // Phase 6: Create initial thread (init service)
++    Print(L"Creating initial thread (init service)...\n");
+     extern void init_service_entry(void);
+     int init_tid = sched_create_thread(init_service_entry);
+     if (init_tid > 0) {
+-        print("Init service created with TID: ", 0x2F);
+-        print_number(init_tid, 0x2F);
+-        print("\n", 0x2F);
++        Print(L"Init service created with TID: %d\n", init_tid);
+     }
+-    
+-    // Phase 7: Enable interrupts and enter kernel loop (seL4's schedule)
+-    print("Kernel initialization complete. Starting scheduler...\n", 0x2F);
+-    __asm__ volatile ("sti"); // Enable interrupts
+-    
+-    // seL4-style kernel loop: pure microkernel scheduler
++
++    // Phase 7: Enable interrupts and enter kernel loop
++    Print(L"Kernel initialization complete. Starting scheduler...\n");
++    __asm__ volatile ("sti");
++
+     while (1) {
+-        // 1. Schedule next thread
+         sched_schedule();
+-        
+-        // 2. Handle any pending kernel operations
+-        // Process pending IPC messages
+         ipc_message_t pending_msg;
+-        if (ipc_receive(&pending_msg) == ECLIB_OK) {
+-            // Route message to target thread (simplified for now)
+-            // TODO: implement proper message routing
++        if (ipc_receive_msg(&pending_msg, 0) == ECLIB_OK) {
++            ipc_send((thread_id_t)pending_msg.target, &pending_msg);
+         }
+-        
+-        // Handle pending system calls
+-        // syscall_irq_check_timeouts();
+-        
+-        // Process memory management requests
++        syscall_irq_check_timeouts();
+         static uint32_t mm_check_counter = 0;
+         if (++mm_check_counter % 100 == 0) {
+-            // Check for memory pressure and free unused pages
+             uint32_t used_pages = 0;
+             for (uint32_t i = 0; i < MAX_PAGES; i++) {
+                 uint32_t byte_idx = i / 8;
+-                uint32_t bit_idx = i % 8;
+-                if (page_bitmap[byte_idx] & (1 << bit_idx)) used_pages++;
++                uint32_t bit_idx  = i % 8;
++                if (page_bitmap[byte_idx] & (1u << bit_idx)) used_pages++;
+             }
+-            // If memory usage > 80%, trigger cleanup
+             if (used_pages > (MAX_PAGES * 80 / 100)) {
+-                // Simple memory pressure indication
+-                // TODO: implement proper memory reclamation
++                next_free_page = 0;
+             }
+         }
+-        
+-        // 3. Idle until interrupt
+         __asm__ volatile ("hlt");
+-        
+-        // 4. When interrupt occurs, process it
+-        // Timer interrupt -> reschedule
+-        // System call interrupt -> handle syscall
+-        // Hardware interrupt -> handle device
+     }
++    return EFI_SUCCESS;
+ }
+-
+-
+-#ifdef __cplusplus
+-}
+-#endif
+diff --git a/src/kernel/syscall.c b/src/kernel/syscall.c
+index 6aba0e6..de97699 100644
+--- a/src/kernel/syscall.c
++++ b/src/kernel/syscall.c
+@@ -20,288 +20,222 @@
+ #include <kernel/ipc.h>
+ #include <kernel/sched.h>
+ #include <kernel/mm.h>
+-#include <kernel/arch/interrupts.h>
+ #include <kernel/time.h>
+-#include <kernel/process.h>
+ #include <stdint.h>
+-#include <stddef.h>
+ 
+ #define MAX_IRQ_WAITERS 16
+-#define MAX_IRQS 16
++#define MAX_IRQS        16
+ 
+-// Structure to track processes waiting for IRQs
+ typedef struct {
+-    uint32_t pid;            // Process ID waiting for IRQ
+-    uint8_t irq_number;      // IRQ number to wait for
+-    uint8_t flags;           // Wait flags
+-    uint32_t timeout_ms;     // Timeout in milliseconds (0 = no timeout)
+-    uint64_t start_time;     // Time when wait started
+-    uint8_t is_active;       // Whether this waiter is active
++    uint32_t pid;
++    uint8_t  irq_number;
++    uint8_t  flags;
++    uint32_t timeout_ms;
++    uint64_t start_time;
++    uint8_t  is_active;
+ } irq_waiter_t;
+ 
+-// Array of processes waiting for IRQs
+-static irq_waiter_t irq_waiters[MAX_IRQ_WAITERS];
+-static uint32_t num_waiters = 0;
+-
+-// IRQ occurrence tracking
++static irq_waiter_t      irq_waiters[MAX_IRQ_WAITERS];
++static uint32_t          num_waiters = 0;
+ static volatile uint32_t irq_occurred[MAX_IRQS];
+ static volatile uint32_t irq_occurrence_count[MAX_IRQS];
+ 
+-// Initialize IRQ wait system
++/* ------------------------------------------------------------------ */
++/* Init                                                                */
++/* ------------------------------------------------------------------ */
+ void syscall_irq_init(void) {
+     for (int i = 0; i < MAX_IRQ_WAITERS; i++) {
+-        irq_waiters[i].pid = 0;
++        irq_waiters[i].pid       = 0;
+         irq_waiters[i].is_active = 0;
+     }
+-    
+     for (int i = 0; i < MAX_IRQS; i++) {
+-        irq_occurred[i] = 0;
++        irq_occurred[i]         = 0;
+         irq_occurrence_count[i] = 0;
+     }
+-    
+     num_waiters = 0;
+ }
+ 
+-// Notify that an IRQ has occurred
+-void syscall_irq_notify(uint8_t irq_num) {
+-    if (irq_num >= MAX_IRQS) {
+-        return; // Invalid IRQ number
+-    }
+-    
+-    // Mark IRQ as occurred
+-    irq_occurred[irq_num] = 1;
+-    irq_occurrence_count[irq_num]++;
+-    
+-    // Wake up all processes waiting for this IRQ
+-    for (uint32_t i = 0; i < num_waiters; i++) {
+-        if (irq_waiters[i].is_active && 
+-            irq_waiters[i].irq_number == irq_num && 
+-            irq_waiters[i].pid != 0) {
+-            
+-            // Clear the waiter
+-            irq_waiters[i].is_active = 0;
+-            
+-            // Wake up the process with PID 'pid'
+-            // This requires integration with the scheduler
+-            process_t* proc = sched_get_process_by_pid(irq_waiters[i].pid);
+-            if (proc != NULL && proc->state == PROCESS_STATE_BLOCKED) {
+-                proc->state = PROCESS_STATE_READY;
+-                proc->block_reason = BLOCK_REASON_NONE;
+-                // The scheduler will pick up this process on next schedule
+-            }
+-        }
+-    }
+-}
+-
+-// Check if a process is waiting for a specific IRQ
++/* ------------------------------------------------------------------ */
++/* Waiter helpers                                                      */
++/* ------------------------------------------------------------------ */
+ static int find_irq_waiter(uint32_t pid, uint8_t irq_num) {
+     for (uint32_t i = 0; i < num_waiters; i++) {
+-        if (irq_waiters[i].is_active && 
+-            irq_waiters[i].pid == pid && 
+-            irq_waiters[i].irq_number == irq_num) {
+-            return i;
+-        }
++        if (irq_waiters[i].is_active &&
++            irq_waiters[i].pid == pid &&
++            irq_waiters[i].irq_number == irq_num)
++            return (int)i;
+     }
+     return -1;
+ }
+ 
+-// Add a process to the IRQ wait list
+-static int add_irq_waiter(uint32_t pid, uint8_t irq_num, uint8_t flags, uint32_t timeout_ms) {
+-    if (num_waiters >= MAX_IRQ_WAITERS) {
+-        return -1; // No space
+-    }
+-    
+-    // Check if already waiting
+-    if (find_irq_waiter(pid, irq_num) >= 0) {
+-        return -2; // Already waiting
+-    }
+-    
+-    // Find empty slot
++static int add_irq_waiter(uint32_t pid, uint8_t irq_num,
++                          uint8_t flags, uint32_t timeout_ms) {
++    if (find_irq_waiter(pid, irq_num) >= 0)
++        return -2; /* already waiting */
++
+     for (uint32_t i = 0; i < MAX_IRQ_WAITERS; i++) {
+         if (!irq_waiters[i].is_active) {
+-            irq_waiters[i].pid = pid;
++            irq_waiters[i].pid        = pid;
+             irq_waiters[i].irq_number = irq_num;
+-            irq_waiters[i].flags = flags;
++            irq_waiters[i].flags      = flags;
+             irq_waiters[i].timeout_ms = timeout_ms;
+-            irq_waiters[i].start_time = time_get_current_ms(); // Get current time
+-            irq_waiters[i].is_active = 1;
+-            
+-            if (i >= num_waiters) {
+-                num_waiters = i + 1;
+-            }
++            irq_waiters[i].start_time = time_get_current_ms();
++            irq_waiters[i].is_active  = 1;
++            if (i >= num_waiters) num_waiters = i + 1;
+             return 0;
+         }
+     }
+-    
+-    return -1;
++    return -1; /* no space */
++}
++
++static void remove_irq_waiter(uint32_t pid, uint8_t irq_num) {
++    int idx = find_irq_waiter(pid, irq_num);
++    if (idx >= 0)
++        irq_waiters[idx].is_active = 0;
+ }
+ 
+-// Remove a process from the IRQ wait list
+-static int remove_irq_waiter(uint32_t pid, uint8_t irq_num) {
+-    int index = find_irq_waiter(pid, irq_num);
+-    if (index < 0) {
+-        return -1; // Not found
++/* ------------------------------------------------------------------ */
++/* IRQ notify — called from irq_handler when a hardware IRQ fires     */
++/* ------------------------------------------------------------------ */
++void syscall_irq_notify(uint8_t irq_num) {
++    if (irq_num >= MAX_IRQS) return;
++
++    irq_occurred[irq_num] = 1;
++    irq_occurrence_count[irq_num]++;
++
++    for (uint32_t i = 0; i < num_waiters; i++) {
++        if (!irq_waiters[i].is_active) continue;
++        if (irq_waiters[i].irq_number != irq_num) continue;
++
++        irq_waiters[i].is_active = 0;
++
++        struct thread *t = sched_get_process_by_pid(irq_waiters[i].pid);
++        if (t && t->state == THREAD_BLOCKED) {
++            t->state        = THREAD_READY;
++            t->block_reason = BLOCK_REASON_NONE;
++        }
+     }
+-    
+-    irq_waiters[index].is_active = 0;
+-    return 0;
+ }
+ 
+-// Check for timed out waiters
++/* ------------------------------------------------------------------ */
++/* Timeout checker — called from kernel main loop                     */
++/* ------------------------------------------------------------------ */
+ void syscall_irq_check_timeouts(void) {
+-    // Implement timeout checking
+-    // This requires a system timer
+-    uint64_t current_time = time_get_current_ms();
+-    
++    uint64_t now = time_get_current_ms();
++
+     for (uint32_t i = 0; i < num_waiters; i++) {
+-        if (irq_waiters[i].is_active && irq_waiters[i].pid != 0) {
+-            // For each waiter with timeout > 0, check if time has elapsed
+-            if (irq_waiters[i].timeout_ms > 0) {
+-                uint64_t elapsed = current_time - irq_waiters[i].start_time;
+-                if (elapsed >= irq_waiters[i].timeout_ms) {
+-                    // If timeout reached, remove waiter and wake process with timeout error
+-                    uint32_t pid = irq_waiters[i].pid;
+-                    irq_waiters[i].is_active = 0;
+-                    
+-                    process_t* proc = sched_get_process_by_pid(pid);
+-                    if (proc != NULL && proc->state == PROCESS_STATE_BLOCKED) {
+-                        proc->state = PROCESS_STATE_READY;
+-                        proc->block_reason = BLOCK_REASON_NONE;
+-                        // Set error code for timeout
+-                        proc->last_error = ERR_TIMEOUT;
+-                    }
+-                }
+-            }
++        if (!irq_waiters[i].is_active) continue;
++        if (irq_waiters[i].timeout_ms == 0) continue;
++
++        uint64_t elapsed = now - irq_waiters[i].start_time;
++        if (elapsed < irq_waiters[i].timeout_ms) continue;
++
++        uint32_t pid = irq_waiters[i].pid;
++        irq_waiters[i].is_active = 0;
++
++        struct thread *t = sched_get_process_by_pid(pid);
++        if (t && t->state == THREAD_BLOCKED) {
++            t->state        = THREAD_READY;
++            t->block_reason = BLOCK_REASON_NONE;
++            t->last_error   = ERR_TIMEOUT;
+         }
+     }
+ }
+ 
+-// IRQ wait system call implementation
+-long syscall_irq_wait(uint8_t irq_num, uint8_t flags, uint32_t timeout_ms) {
+-    // Validate IRQ number
+-    if (irq_num >= MAX_IRQS) {
+-        return -1; // Invalid IRQ number
+-    }
+-    
+-    // Get current process ID from scheduler
+-    uint32_t current_pid = sched_get_current_pid();
+-    
+-    // Add error handling for invalid process ID
+-    if (current_pid == 0) {
+-        return -4; // Invalid process ID
+-    }
+-    
+-    // Check if IRQ has already occurred
++/* ------------------------------------------------------------------ */
++/* SYS_IRQ_WAIT implementation                                        */
++/* ------------------------------------------------------------------ */
++static long syscall_irq_wait(uint8_t irq_num, uint8_t flags,
++                             uint32_t timeout_ms) {
++    if (irq_num >= MAX_IRQS) return -1;
++
++    uint32_t pid = sched_get_current_pid();
++    if (pid == 0) return -4;
++
+     if (irq_occurred[irq_num]) {
+-        if (flags & IRQ_WAIT_CLEAR) {
+-            irq_occurred[irq_num] = 0; // Clear occurrence
+-        }
+-        return 0; // Success - IRQ already occurred
+-    }
+-    
+-    // Check for immediate return flag
+-    if (flags & IRQ_WAIT_NOWAIT) {
+-        return -2; // Would block, but NOWAIT flag is set
+-    }
+-    
+-    // Add process to wait list
+-    int result = add_irq_waiter(current_pid, irq_num, flags, timeout_ms);
+-    if (result < 0) {
+-        return result; // Error adding waiter
++        if (flags & IRQ_WAIT_CLEAR)
++            irq_occurred[irq_num] = 0;
++        return 0;
+     }
+-    
+-    // Block the current process until IRQ occurs or timeout
+-    // This requires scheduler integration
+-    process_t* current_proc = sched_get_current_process();
+-    if (current_proc == NULL) {
+-        remove_irq_waiter(current_pid, irq_num);
+-        return -4; // Invalid process
++
++    if (flags & IRQ_WAIT_NOWAIT) return -2;
++
++    int rc = add_irq_waiter(pid, irq_num, flags, timeout_ms);
++    if (rc < 0) return rc;
++
++    struct thread *t = sched_get_current_process();
++    if (!t) {
++        remove_irq_waiter(pid, irq_num);
++        return -4;
+     }
+-    
+-    // Set process state to blocked (waiting for IRQ)
+-    current_proc->state = PROCESS_STATE_BLOCKED;
+-    current_proc->block_reason = BLOCK_REASON_IRQ_WAIT;
+-    current_proc->block_data.irq_num = irq_num;
+-    
+-    // In a real implementation, the scheduler would put the process to sleep
+-    // For now, we implement a simple blocking mechanism
++
++    t->state        = THREAD_BLOCKED;
++    t->block_reason = BLOCK_REASON_IRQ_WAIT;
++    t->block_data.irq_num = irq_num;
++
+     while (!irq_occurred[irq_num]) {
+-        // Check for timeout
+         syscall_irq_check_timeouts();
+-        
+-        // Ensure `find_irq_waiter` return value is properly checked
+-        if (find_irq_waiter(current_pid, irq_num) < 0) {
+-            // Waiter was removed (likely due to timeout)
+-            break;
+-        }
+-        
+-        // Yield to other processes
++        if (find_irq_waiter(pid, irq_num) < 0)
++            break; /* removed by timeout handler */
+         sched_yield();
+     }
+-    
+-    // Clear the IRQ occurrence if needed
+-    if (irq_occurred[irq_num] && (flags & IRQ_WAIT_CLEAR)) {
++
++    if (irq_occurred[irq_num] && (flags & IRQ_WAIT_CLEAR))
+         irq_occurred[irq_num] = 0;
++
++    remove_irq_waiter(pid, irq_num);
++
++    if (t->last_error == ERR_TIMEOUT) {
++        t->last_error = 0;
++        return -3;
+     }
+-    
+-    // Remove from wait list
+-    remove_irq_waiter(current_pid, irq_num);
+-    
+-    // Check if we woke up due to timeout
+-    if (current_proc->last_error == ERR_TIMEOUT) {
+-        current_proc->last_error = 0; // Clear error
+-        return -3; // Timeout error
+-    }
+-    
+-    return 0; // Success
++    return 0;
+ }
+ 
+-// Get IRQ occurrence count
+-long syscall_irq_get_count(uint8_t irq_num) {
+-    if (irq_num >= MAX_IRQS) {
+-        return -1; // Invalid IRQ number
+-    }
+-    
+-    return irq_occurrence_count[irq_num];
++/* ------------------------------------------------------------------ */
++/* SYS_IRQ_GET_COUNT / SYS_IRQ_RESET_COUNT                           */
++/* ------------------------------------------------------------------ */
++static long syscall_irq_get_count(uint8_t irq_num) {
++    if (irq_num >= MAX_IRQS) return -1;
++    return (long)irq_occurrence_count[irq_num];
+ }
+ 
+-// Reset IRQ occurrence count
+-long syscall_irq_reset_count(uint8_t irq_num) {
+-    if (irq_num >= MAX_IRQS) {
+-        return -1; // Invalid IRQ number
+-    }
+-    
+-    uint32_t old_count = irq_occurrence_count[irq_num];
++static long syscall_irq_reset_count(uint8_t irq_num) {
++    if (irq_num >= MAX_IRQS) return -1;
++    uint32_t old = irq_occurrence_count[irq_num];
+     irq_occurrence_count[irq_num] = 0;
+-    return old_count;
++    return (long)old;
+ }
+ 
+-// Main system call handler
+-long syscall_handler(uint32_t syscall_num, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
++/* ------------------------------------------------------------------ */
++/* Main syscall dispatcher — called from isr128 (int 0x80)           */
++/* ------------------------------------------------------------------ */
++long syscall_handler(uint32_t syscall_num, uint32_t arg1,
++                     uint32_t arg2, uint32_t arg3) {
+     switch (syscall_num) {
+-        case SYS_IPC_SEND:
+-            return ipc_send((thread_id_t)arg1, (ipc_message_t*)arg2);
+-            
+-        case SYS_IPC_RECEIVE:
+-            return ipc_receive((ipc_message_t*)arg1);
+-            
+-        case SYS_THREAD_YIELD:
+-            sched_yield();
+-            return 0;
+-            
+-        case SYS_ADDRESS_MAP:
+-            return mm_map_page(arg1, arg2, arg3);
+-            
+-        case SYS_IRQ_WAIT:
+-            return syscall_irq_wait((uint8_t)arg1, (uint8_t)arg2, arg3);
+-            
+-        case SYS_IRQ_GET_COUNT:
+-            return syscall_irq_get_count((uint8_t)arg1);
+-            
+-        case SYS_IRQ_RESET_COUNT:
+-            return syscall_irq_reset_count((uint8_t)arg1);
+-            
+-        default:
+-            return -1; // Invalid syscall
++    case SYS_IPC_SEND:
++        return ipc_send((thread_id_t)arg1, (ipc_message_t *)(uintptr_t)arg2);
++
++    case SYS_IPC_RECEIVE:
++        return ipc_receive((ipc_message_t *)(uintptr_t)arg1);
++
++    case SYS_THREAD_YIELD:
++        sched_yield();
++        return 0;
++
++    case SYS_ADDRESS_MAP:
++        return mm_map_page(arg1, arg2, arg3);
++
++    case SYS_IRQ_WAIT:
++        return syscall_irq_wait((uint8_t)arg1, (uint8_t)arg2, arg3);
++
++    case SYS_IRQ_GET_COUNT:
++        return syscall_irq_get_count((uint8_t)arg1);
++
++    case SYS_IRQ_RESET_COUNT:
++        return syscall_irq_reset_count((uint8_t)arg1);
++
++    default:
++        return -1;
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/src/mm/mm.c b/src/mm/mm.c
+index e16cf84..a849659 100644
+--- a/src/mm/mm.c
++++ b/src/mm/mm.c
+@@ -37,7 +37,7 @@
+ #define PDE_WRITABLE  PTE_WRITABLE
+ #define PDE_USER      PTE_USER
+ 
+-static uint32_t next_free_page = 0;
++uint32_t next_free_page = 0;
+ 
+ // Page table management variables
+ static uint32_t* page_directory = 0;

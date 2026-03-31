@@ -37,7 +37,7 @@
 #define PDE_WRITABLE  PTE_WRITABLE
 #define PDE_USER      PTE_USER
 
-static uint32_t next_free_page = 0;
+uint32_t next_free_page = 0;
 
 // Page table management variables
 static uint32_t* page_directory = 0;

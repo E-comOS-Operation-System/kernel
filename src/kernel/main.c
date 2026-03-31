@@ -18,105 +18,96 @@
 
 #include <stdint.h>
 #include <kernel/arch/x86_64.h>
+#include <kernel/arch/interrupts.h>
 #include <kernel/mm.h>
 #include <kernel/sched.h>
 #include <kernel/ipc.h>
 #include <kernel/syscall.h>
 #include <kernel/printkit/print.h>
-#include <kernel/arch/interrupts.h>
+
+extern void syscall_irq_check_timeouts(void);
+extern void syscall_irq_init(void);
+extern void gdt_init(void);
 
 
 // Simple VGA text mode buffer
 // VGA memory starts at 0xB8000 in 80x25 text mode
 #define VGA_MEMORY ((volatile uint16_t*)0xB8000)
 
-// Ensure kernel_main is not name-mangled
-#ifdef __cplusplus
-extern "C" {
-#endif
+// UEFI 入口
+#include <efi/efi.h>
+#include <efi/efilib.h>
+#include <kernel/arch/x86_64.h>
+#include <kernel/arch/interrupts.h>
+#include <kernel/mm.h>
+#include <kernel/sched.h>
+#include <kernel/ipc.h>
+#include <kernel/syscall.h>
 
-// Main kernel function - seL4 style initialization
-void kernel_main(void) {
-    // Phase 1: Early platform initialization (like seL4's init_kernel)
-    clear_screen(0x1F);
-    print("E-comOS Microkernel v0.0.1\n", 0x1F);
-    print("Initializing kernel...\n", 0x1F);
-    
-    // Phase 2: Memory subsystem (seL4's init_freemem)
-    print("Initializing memory subsystem...\n", 0x1F);
+extern void syscall_irq_check_timeouts(void);
+extern void syscall_irq_init(void);
+extern void gdt_init(void);
+
+EFI_STATUS EFIAPI kernel_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
+        extern uint32_t next_free_page;
+    InitializeLib(ImageHandle, SystemTable);
+    Print(L"E-comOS Microkernel v0.0.1 UEFI boot\n");
+    Print(L"Initializing kernel...\n");
+
+    // Phase 1b: GDT + TSS (must be before interrupts)
+    Print(L"Setting up GDT + TSS...\n");
+    gdt_init();
+
+    // Phase 2: Memory subsystem
+    Print(L"Initializing memory subsystem...\n");
     mm_enable_paging();
-    
-    // Phase 3: Interrupt and exception handling (seL4's init_irqs)
-    print("Setting up interrupt handling...\n", 0x1F);
+
+    // Phase 3: Interrupt and exception handling
+    Print(L"Setting up interrupt handling...\n");
     idt_init();
     irq_remap();
-    
-    // Phase 4: Scheduler initialization (seL4's init_sched)
-    print("Initializing scheduler...\n", 0x1F);
+    irq_init_timer();
+
+    // Phase 4: Scheduler initialization
+    Print(L"Initializing scheduler...\n");
     // Scheduler already initialized via static arrays
-    
-    // Phase 5: IPC initialization (seL4's init_ipc)
-    print("Initializing IPC subsystem...\n", 0x1F);
-    // syscall_irq_init(); // TODO: implement this function
-    
-    // Phase 6: Create initial thread (seL4's create_initial_thread)
-    print("Creating initial thread (init service)...\n", 0x1F);
+
+    // Phase 5: IPC + syscall IRQ init
+    Print(L"Initializing IPC subsystem...\n");
+    syscall_irq_init();
+
+    // Phase 6: Create initial thread (init service)
+    Print(L"Creating initial thread (init service)...\n");
     extern void init_service_entry(void);
     int init_tid = sched_create_thread(init_service_entry);
     if (init_tid > 0) {
-        print("Init service created with TID: ", 0x2F);
-        print_number(init_tid, 0x2F);
-        print("\n", 0x2F);
+        Print(L"Init service created with TID: %d\n", init_tid);
     }
-    
-    // Phase 7: Enable interrupts and enter kernel loop (seL4's schedule)
-    print("Kernel initialization complete. Starting scheduler...\n", 0x2F);
-    __asm__ volatile ("sti"); // Enable interrupts
-    
-    // seL4-style kernel loop: pure microkernel scheduler
+
+    // Phase 7: Enable interrupts and enter kernel loop
+    Print(L"Kernel initialization complete. Starting scheduler...\n");
+    __asm__ volatile ("sti");
+
     while (1) {
-        // 1. Schedule next thread
         sched_schedule();
-        
-        // 2. Handle any pending kernel operations
-        // Process pending IPC messages
         ipc_message_t pending_msg;
-        if (ipc_receive(&pending_msg) == ECLIB_OK) {
-            // Route message to target thread (simplified for now)
-            // TODO: implement proper message routing
+        if (ipc_receive_msg(&pending_msg, 0) == ECLIB_OK) {
+            ipc_send((thread_id_t)pending_msg.target, &pending_msg);
         }
-        
-        // Handle pending system calls
-        // syscall_irq_check_timeouts();
-        
-        // Process memory management requests
+        syscall_irq_check_timeouts();
         static uint32_t mm_check_counter = 0;
         if (++mm_check_counter % 100 == 0) {
-            // Check for memory pressure and free unused pages
             uint32_t used_pages = 0;
             for (uint32_t i = 0; i < MAX_PAGES; i++) {
                 uint32_t byte_idx = i / 8;
-                uint32_t bit_idx = i % 8;
-                if (page_bitmap[byte_idx] & (1 << bit_idx)) used_pages++;
+                uint32_t bit_idx  = i % 8;
+                if (page_bitmap[byte_idx] & (1u << bit_idx)) used_pages++;
             }
-            // If memory usage > 80%, trigger cleanup
             if (used_pages > (MAX_PAGES * 80 / 100)) {
-                // Simple memory pressure indication
-                // TODO: implement proper memory reclamation
+                next_free_page = 0;
             }
         }
-        
-        // 3. Idle until interrupt
         __asm__ volatile ("hlt");
-        
-        // 4. When interrupt occurs, process it
-        // Timer interrupt -> reschedule
-        // System call interrupt -> handle syscall
-        // Hardware interrupt -> handle device
     }
+    return EFI_SUCCESS;
 }
-
-
-#ifdef __cplusplus
-}
-#endif

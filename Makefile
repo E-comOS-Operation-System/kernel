@@ -16,7 +16,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # =============================================================================
 
-<<<<<<< HEAD
 # E-comOS Makefile
 # Cross-platform compatible for macOS, Linux, and Windows (WSL/Cygwin)
 # Core targets:
@@ -32,12 +31,7 @@ UNAME := $(shell uname -s)
 # Toolchain - prefer cross-compiler for consistency
 ifeq ($(UNAME),Darwin)
     # macOS
-    CC = $(shell which x86_64-elf-gcc 2>/dev/null || which clang 2>/dev/null || echo "gcc")
-    AS = $(shell which x86_64-elf-as 2>/dev/null || which as 2>/dev/null || echo "as")
-    LD = $(shell which x86_64-elf-ld 2>/dev/null || which ld 2>/dev/null || echo "ld")
-    OBJCOPY = $(shell which x86_64-elf-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo "objcopy")
-    QEMU = qemu-system-x86_64
-    STAT_SIZE = stat -f%z
+    @exit 1
 else ifeq ($(UNAME),Linux)
     # Linux
     CC = $(shell which x86_64-elf-gcc 2>/dev/null || which gcc 2>/dev/null)
@@ -48,12 +42,7 @@ else ifeq ($(UNAME),Linux)
     STAT_SIZE = stat -c%s
 else
     # Windows (Cygwin/MinGW/WSL)
-    CC = gcc
-    AS = as
-    LD = ld
-    OBJCOPY = objcopy
-    QEMU = qemu-system-x86_64.exe
-    STAT_SIZE = stat -c%s
+    @exit 1
 endif
 
 # NASM for assembly files
@@ -71,18 +60,38 @@ NASM_ELF64_FLAGS = -f elf64           # For kernel ELF objects
 NASM_BIN_FLAGS = -f bin               # For boot sector (raw binary)
 
 # Linker flags
-LDFLAGS = -m elf_x86_64 -nostdlib -T arch/x86_64/boot/linker.ld
+LDFLAGS = -m elf_x86_64 -nostdlib -T uefi.ld
 
 # Source files
 KERNEL_SOURCES = src/kernel/main.c \
+                 src/kernel/syscall.c \
+                 src/kernel/init.c \
                  src/ipc/ipc.c \
                  src/mm/mm.c \
                  src/sched/sched.c \
-                 src/kernel/syscall.c
+                 src/printkit/print.c \
+                 src/time/time.c \
+                 arch/x86_64/cpu/gdt.c \
+                 arch/x86_64/interrupts/idt.c \
+                 arch/x86_64/interrupts/isr.c \
+                 arch/x86_64/interrupts/irq.c
 
 # Assembly source files
 
-ASM_SOURCES = kernel_entry.s
+ASM_SOURCES = arch/x86_64/cpu/context_switch.s \
+              boot/uefi_start.s
+
+# Note: EFI entrypoint is provided by existing `boot/uefi_start.s` (_start).
+
+ASM_EXTRA_OBJS = arch/x86_64/interrupts/isr_asm.o \
+                 arch/x86_64/interrupts/irq_asm.o
+
+# EFI-specific assembly stub for PE/EFI builds (don't include in normal boot image)
+EFI_ASM_SOURCES = src/efi/efi_start.s
+EFI_ASM_OBJS = $(EFI_ASM_SOURCES:.s=.o)
+
+# Objects used when linking the ELF that will be converted to PE (use EFI stub here)
+ALL_OBJS_ELF = $(KERNEL_OBJS) $(EFI_ASM_OBJS) $(ASM_EXTRA_OBJS)
 
 # Boot sector source files
 STAGE1_SRC = src/boot/bootsect.s
@@ -90,85 +99,54 @@ STAGE2_SRC = src/boot/bootsect-2nd.s
 
 # Object files
 KERNEL_OBJS = $(KERNEL_SOURCES:.c=.o)
-
-ALL_OBJS = $(KERNEL_OBJS) $(ASM_OBJS)
+ASM_OBJS    = $(ASM_SOURCES:.s=.o)
+ALL_OBJS    = $(KERNEL_OBJS) $(ASM_OBJS) $(ASM_EXTRA_OBJS)
 
 # Boot binaries
 STAGE1_BIN = dos25-release.bin
 STAGE2_BIN = dos25-stage2.bin
 KERNEL_BIN = kernel.bin
+KERNEL_EFI = kernel.efi
+KERNEL_ELF = kernel.elf
 IMAGE_FILE = canuse.img
-=======
-# Core targets:
-# - make all      → Build everything (kernel + UEFI image)
-# - make kernel   → Build kernel binary only  
-# - make uefi     → Create UEFI bootable image
-# - make run      → Test in QEMU with OVMF
-# - make clean    → Clean all build artifacts
-# - make help     → Show help message
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
-# Cross-compiler toolchain for x86_64-elf
-PREFIX := x86_64-elf-
-CC := $(PREFIX)gcc
-LD := $(PREFIX)ld
-OBJCOPY := $(PREFIX)objcopy
-AS := $(PREFIX)gcc  # Use gcc for assembling .s files
-QEMU := qemu-system-x86_64
 
-# Check if cross-compiler is available
-ifeq (, $(shell which $(CC) 2>/dev/null))
-    $(error x86_64-elf-gcc not found! Please install cross-compiler toolchain)
-endif
 
-# UEFI-specific flags
-CFLAGS := -m64 -ffreestanding -fno-builtin -fno-stack-protector \
-          -nostdlib -Wall -Wextra -c -mcmodel=large -mno-red-zone \
-          -fno-pic -fno-pie
+# UEFI PE/COFF build outputs (标准crt0-efi-x86_64.o/elf_x86_64_efi.lds方案)
+EFI_INC = /usr/include/efi
+EFI_INC_X64 = /usr/include/efi/x86_64
+EFI_LIB = /usr/lib
+EFI_LDS = /usr/lib/elf_x86_64_efi.lds
+EFI_CRT0 = /usr/lib/crt0-efi-x86_64.o
 
-# Assembly flags
-ASFLAGS := -m64 -c -x assembler-with-cpp
+KERNEL_OBJ = kernel.o
+KERNEL_SO = kernel.so
+KERNEL_EFI = kernel.efi
 
-# Linker flags
-LDFLAGS := -m elf_x86_64 -nostdlib -T uefi.ld -z max-page-size=0x1000
+CFLAGS += -ffreestanding -fno-stack-protector -fpic -mno-red-zone -Wall -Iinclude -I$(EFI_INC) -I$(EFI_INC_X64)
+LDFLAGS = -nostdlib -T $(EFI_LDS) -shared -Bsymbolic -L$(EFI_LIB) -lefi -lgnuefi
 
-# Add include directories to compiler flags
-INCLUDE_DIRS := -Iinclude -Iinclude/kernel -Iinclude/kernel/arch \
-                -Iarch/x86_64/internal
-CFLAGS += $(INCLUDE_DIRS)
-ASFLAGS += $(INCLUDE_DIRS)
+all: $(KERNEL_EFI)
 
-# Output files
-KERNEL_ELF := kernel.elf
-UEFI_IMAGE := ecomos-uefi.img
+$(KERNEL_OBJ): src/kernel/main.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# Source files
-C_SOURCES := \
-    kernel_main.c \
-    src/kernel/main.c \
-    src/kernel/init.c \
-    src/kernel/syscall.c \
-    src/mm/mm.c \
-    src/ipc/ipc.c \
-    src/sched/sched.c \
-    src/printkit/print.c \
-    src/time/time.c \
-    arch/x86_64/interrupts/idt.c \
-    arch/x86_64/interrupts/isr.c \
-    arch/x86_64/interrupts/irq.c
+$(KERNEL_SO): $(EFI_CRT0) $(KERNEL_OBJ)
+	$(LD) -nostdlib -T $(EFI_LDS) -shared -Bsymbolic -o $@ $(EFI_CRT0) $(KERNEL_OBJ) -L$(EFI_LIB) -lefi -lgnuefi
 
-ASM_SOURCES :=
->>>>>>> ec37f5423fdac6dbb9748e82d6a54f71f0935f44
+$(KERNEL_EFI): $(KERNEL_SO)
+	@if $(OBJCOPY) --help 2>&1 | grep -q efi-app-x86_64; then \
+	  $(OBJCOPY) -O efi-app-x86_64 $< $@; \
+	else \
+	  $(OBJCOPY) -O pei-x86-64 --subsystem=10 --file-alignment=0x200 --section-alignment=0x1000 --add-section .reloc=/dev/null $< $@; \
+	fi
 
-# Object files
-C_OBJECTS := $(C_SOURCES:.c=.o)
-ASM_OBJECTS := $(ASM_SOURCES:.s=.o)
-ALL_OBJECTS := $(C_OBJECTS) $(ASM_OBJECTS)
+clean:
+	rm -f $(KERNEL_OBJ) $(KERNEL_SO) $(KERNEL_EFI)
 
-<<<<<<< HEAD
+
+
 # Kernel target
 kernel: $(KERNEL_BIN)
 	@echo "✅ E-comOS kernel binary ready: $(KERNEL_BIN)"
@@ -219,6 +197,15 @@ $(STAGE2_BIN): $(STAGE2_SRC)
 	$(CC) $(CFLAGS) -I include -o $@ $<
 
 # Assemble assembly source files (GAS/AT&T syntax)
+# Use _asm suffix to avoid collision with same-named .c files
+arch/x86_64/interrupts/isr_asm.o: arch/x86_64/interrupts/isr.s
+	@echo "🔧 Assembling $< with GNU as..."
+	as $(ASFLAGS) -o $@ $<
+
+arch/x86_64/interrupts/irq_asm.o: arch/x86_64/interrupts/irq.s
+	@echo "🔧 Assembling $< with GNU as..."
+	as $(ASFLAGS) -o $@ $<
+
 %.o: %.s
 	@echo "🔧 Assembling $< with GNU as..."
 	as $(ASFLAGS) -o $@ $<
@@ -236,6 +223,72 @@ $(KERNEL_BIN): $(ALL_OBJS)
 	fi
 	$(LD) $(LDFLAGS) -o $@ $(ALL_OBJS)
 	@echo "   Kernel size: $$($(STAT_SIZE) $@ 2>/dev/null || wc -c < $@) bytes"
+
+# Link an ELF that we will convert to PE32+ using objcopy
+$(KERNEL_ELF): $(ALL_OBJS)
+	@echo "🔗 Linking kernel ELF for PE conversion..."
+	$(LD) $(LDFLAGS) -o $@ $(ALL_OBJS)
+	@echo "   ELF size: $$($(STAT_SIZE) $@ 2>/dev/null || wc -c < $@) bytes"
+
+# --- GNU-EFI build path: produce a PE with proper EFI headers and relocations
+$(GNU_EFI_INC)/: ;
+
+$(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds:
+	@echo "Note: GNU-EFI linker script not found at $(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds"
+	@echo "If GNU-EFI is not installed, on Debian/Ubuntu: sudo apt install gnu-efi";
+	@false
+
+src/efi/gnuefi_stub.o: src/efi/gnuefi_stub.c
+	@echo "🔧 Compiling GNU-EFI stub $<..."
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I $(GNU_EFI_INC) -I $(GNU_EFI_INC_X64) -fshort-wchar -DEFI_FUNCTION_WRAPPER -o $@ -c $<
+
+$(KERNEL_GNUEFI_SO): $(ALL_OBJS) src/efi/gnuefi_stub.o | $(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds
+	@echo "🔗 Linking with GNU-EFI libs to produce shared PE object..."
+	@if [ ! -f $(GNU_EFI_LDSCRIPT) ]; then \
+	    echo "❌ GNU-EFI linker script not found at $(GNU_EFI_LDSCRIPT)."; \
+	    echo "   Install gnu-efi (Debian/Ubuntu: sudo apt install gnu-efi) or set GNU_EFI_LIB_DIR="; exit 1; \
+	    fi
+	# Do not disable combined relocations; keep default to allow .rela -> .reloc conversion
+	ld -nostdlib -T $(GNU_EFI_LDSCRIPT) -shared -Bsymbolic -L $(GNU_EFI_LIB_DIR) -lefi -lgnuefi -o $@ $(ALL_OBJS) src/efi/gnuefi_stub.o
+
+# Experimental: try linking directly to PE (pei-x86-64) so linker emits proper PE directories
+kernel_direct.efi: $(ALL_OBJS) src/efi/gnuefi_stub.o | $(GNU_EFI_LIB_DIR)/elf_x86_64_efi.lds
+	@echo "🔗 Direct-linking PE (experimental) using ld --oformat=pei-x86-64..."
+	@if [ ! -f $(GNU_EFI_LDSCRIPT) ]; then \
+	    echo "❌ GNU-EFI linker script not found at $(GNU_EFI_LDSCRIPT)."; exit 1; \
+	fi
+	# Place objects before libraries so undefined refs in stub are resolved
+	ld -nostdlib -T $(GNU_EFI_LDSCRIPT) -shared -Bsymbolic -o $@ $(ALL_OBJS) src/efi/gnuefi_stub.o -L $(GNU_EFI_LIB_DIR) -lefi -lgnuefi --oformat=pei-x86-64 || true
+
+
+$(KERNEL_EFI): $(KERNEL_GNUEFI_SO)
+	@echo "🔧 Converting GNU-EFI shared object to PE32+ EFI application (preserve relocations)..."
+	@if [ -z "$(shell which $(OBJCOPY) 2>/dev/null)" ]; then \
+		echo "❌ Error: objcopy not found; please install binutils."; exit 1; \
+		fi
+	# Prefer objcopy's built-in efi-app-x86_64 format when available; this
+	# typically sets up the PE headers and Data Directory correctly.
+ifeq ($(shell $(OBJCOPY) --help 2>/dev/null | grep -c efi-app-x86_64),0)
+	# Fallback: copy sections explicitly, renaming .rela -> .reloc so the
+	# PE image contains a Base Relocation Directory. This works on systems
+	# where objcopy lacks the efi-app target.
+	$(OBJCOPY) -O pei-x86-64 \
+		--rename-section .rela=.reloc --rename-section .rela.dyn=.reloc \
+		-j .text -j .sdata -j .data -j .rodata -j .reloc -j .rela -j .rela.dyn $< $@
+else
+	# Preferred path
+	$(OBJCOPY) -O efi-app-x86_64 $< $@
+endif
+	@echo "   Created $@ ($$(wc -c < $@ 2>/dev/null || echo 0) bytes)"
+
+.PHONY: gnuefi
+gnuefi: $(KERNEL_EFI)
+	@echo "✅ GNU-EFI PE ready: $(KERNEL_EFI)"
+
+.PHONY: efi
+efi: $(KERNEL_EFI)
+	@echo "✅ EFI application ready: $(KERNEL_EFI)"
 
 # Create bootable image
 $(IMAGE_FILE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_BIN)
@@ -339,106 +392,40 @@ help:
 	@echo "  bootsect*.s files: Compiled with NASM (Intel syntax)"
 
 .PHONY: all kernel image run debug boottest kernel-info clean fuckimage help
-=======
-# =============================================================================
-# PHONY TARGETS
-# =============================================================================
 
-.PHONY: all kernel uefi run clean help check-toolchain
+# Use existing DOS25 launcher to create a test ESP layout
+.PHONY: use-dos25
+use-dos25:
+	@echo "🔧 Staging DOS25 launcher and kernel into release/esp..."
+	@if [ -f "$$HOME/DOS25/esp/EFI/BOOT/BOOTX64.EFI" ]; then \
+		BOOT_SRC="$$HOME/DOS25/esp/EFI/BOOT/BOOTX64.EFI"; \
+		echo "Found launcher at $$BOOT_SRC"; \
+		echo ""; \
+		echo "Copying..."; \
+		mkdir -p release/esp/EFI/BOOT; \
+		cp "$$BOOT_SRC" release/esp/EFI/BOOT/BOOTX64.EFI; \
+	elif [ -f "$$HOME/DOS25/build/BOOTX64.EFI" ]; then \
+		BOOT_SRC="$$HOME/DOS25/build/BOOTX64.EFI"; \
+		echo "Found launcher at $$BOOT_SRC"; \
+		mkdir -p release/esp/EFI/BOOT; \
+		cp "$$BOOT_SRC" release/esp/EFI/BOOT/BOOTX64.EFI; \
+	else \
+		echo "❌ Cannot find DOS25 BOOTX64.EFI in $$HOME/DOS25/esp/EFI/BOOT or $$HOME/DOS25/build"; exit 1; \
+	fi; \
+	# Ensure kernel binary is available
+	if [ -f kernel.bin ]; then \
+		cp kernel.bin release/esp/kernel.bin; \
+		echo "Copied local kernel.bin to release/esp/kernel.bin"; \
+	else \
+		echo "⚠ kernel.bin not found; building kernel..."; \
+		$(MAKE) kernel; \
+		cp kernel.bin release/esp/kernel.bin; \
+	fi; \
+	echo "✅ Staged files under release/esp"; \
+	echo ""; \
+	echo "To test with QEMU+OVMF (adjust paths to your OVMF if needed):"; \
+	echo "  qemu-system-x86_64 -m 512 \\\n+	  -drive if=pflash,format=raw,readonly,file=/usr/share/ovmf/OVMF_CODE.fd \\\n+	  -drive if=pflash,format=raw,file=release/OVMF_VARS.fd \\\n+	  -drive file=fat:rw:release/esp,format=raw -serial stdio"; \
+	if [ ! -f /usr/share/ovmf/OVMF_CODE.fd ]; then \
+		echo "⚠ OVMF not found at /usr/share/ovmf/OVMF_CODE.fd — change to your OVMF path or install edk2-ovmf package."; \
+	fi
 
-# Default target - build UEFI kernel
-all: check-toolchain $(UEFI_IMAGE)
-	@echo "✅ Build complete: $(UEFI_IMAGE)"
-
-# Check toolchain availability
-check-toolchain:
-	@echo "🔧 Checking for x86_64-elf toolchain..."
-	@which $(CC) >/dev/null || (echo "❌ Error: $(CC) not found!"; exit 1)
-	@echo "✅ Toolchain found: $(shell $(CC) --version | head -n1)"
-
-# Build kernel only
-kernel: check-toolchain $(KERNEL_ELF)
-	@echo "✅ Kernel ready: $(KERNEL_ELF)"
-
-# Create UEFI bootable image
-uefi: check-toolchain $(UEFI_IMAGE)
-	@echo "✅ UEFI image: $(UEFI_IMAGE)"
-
-# Test in QEMU
-run: $(UEFI_IMAGE)
-	@echo "🚀 Starting QEMU with UEFI..."
-	$(QEMU) -drive file=$(UEFI_IMAGE),format=raw -m 512M -serial stdio \
-        -machine q35 -cpu qemu64 -smp 1
-
-# Clean build artifacts
-clean:
-	@echo "🧹 Cleaning build files..."
-	@rm -f $(ALL_OBJECTS) $(KERNEL_ELF) $(UEFI_IMAGE)
-	@echo "✅ Clean complete"
-
-# Show help
-help:
-	@echo "E-comOS Kernel Build System"
-	@echo ""
-	@echo "Available targets:"
-	@echo "  make all    - Build kernel and UEFI image (default)"
-	@echo "  make kernel - Build kernel binary only"
-	@echo "  make uefi   - Create UEFI bootable image"
-	@echo "  make run    - Test in QEMU with OVMF"
-	@echo "  make clean  - Clean all build artifacts"
-	@echo "  make help   - Show this help message"
-	@echo ""
-	@echo "Toolchain:"
-	@echo "  CC: $(CC)"
-	@echo "  LD: $(LD)"
-	@echo "  OBJCOPY: $(OBJCOPY)"
-	@echo "  AS: $(AS)"
-
-# =============================================================================
-# BUILD RULES
-# =============================================================================
-
-# Link kernel with all object files
-$(KERNEL_ELF): $(ALL_OBJECTS)
-	@echo "🔗 Linking kernel..."
-	$(LD) $(LDFLAGS) -o $@ $(ALL_OBJECTS)
-	@echo "✅ Kernel size: $$(stat -f%z $@ 2>/dev/null || stat -c%s $@) bytes"
-	@echo "📦 Linked object files:"
-	@for obj in $(ALL_OBJECTS); do \
-		if [ -f "$$obj" ]; then \
-			echo "  ✓ $$obj"; \
-		fi; \
-	done
-
-# Compile C source files
-%.o: %.c
-	@echo "🔧 Compiling $<..."
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $< -o $@
-
-# Compile assembly files (using gcc instead of as directly)
-# This ensures proper preprocessing and flag handling
-%.o: %.s
-	@echo "🔧 Assembling $< (GAS)..."
-	@mkdir -p $(dir $@)
-	$(AS) $(ASFLAGS) $< -o $@
-
-# Alternative: If you want to use NASM instead, comment the above and uncomment below
-# NASM := nasm
-# NASMFLAGS := -f elf64
-# %.o: %.s
-#	@echo "🔧 Assembling $< (NASM)..."
-#	@mkdir -p $(dir $@)
-#	$(NASM) $(NASMFLAGS) $< -o $@
-
-# Create UEFI image
-$(UEFI_IMAGE): $(KERNEL_ELF)
-	@echo "🔨 Creating UEFI bootable image..."
-	# Create FAT32 image
-	dd if=/dev/zero of=$@ bs=1M count=64 status=none
-	mkfs.fat -F 32 $@ >/dev/null 2>&1
-	# Copy kernel as EFI application
-	mmd -i $@ ::/EFI ::/EFI/BOOT 2>/dev/null || true
-	mcopy -i $@ $(KERNEL_ELF) ::/EFI/BOOT/BOOTX64.EFI
-	@echo "✅ UEFI image created: $@"
->>>>>>> ec37f5423fdac6dbb9748e82d6a54f71f0935f44
