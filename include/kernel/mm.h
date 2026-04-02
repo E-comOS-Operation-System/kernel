@@ -100,8 +100,7 @@ int mm_init(uint32_t memory_size);
 /* Compatibility definitions for existing code */
 #define PTE_PRESENT   (1 << 0)    // Page present flag
 #define PTE_WRITABLE  (1 << 1)    // Page writable flag
-#define MAX_PAGES MAX_PHYS_PAGES  // Alias for compatibility
-
+#define MAX_PAGES MAX_PHYS_PAGES
 /* Paging function declarations */
 void mm_enable_paging(void);
 
