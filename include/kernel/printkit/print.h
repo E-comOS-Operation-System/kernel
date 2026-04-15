@@ -1,19 +1,26 @@
-/* 
- * E-comOS Kernel - Print Utility Header
- * Copyright (C) 2025,2026 Saladin5101
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- */
+/*
+    E-comOS Kernel - Print Utility
+    Copyright (C) 2025,2026  Saladin5101
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 #ifndef KERNEL_PRINT_H
 #define KERNEL_PRINT_H
 
 #include <stdint.h>
 
-/* Color definitions for text output */
 #define COLOR_BLACK         0x0
 #define COLOR_BLUE          0x1
 #define COLOR_GREEN         0x2
@@ -31,14 +38,12 @@
 #define COLOR_YELLOW        0xE
 #define COLOR_WHITE         0xF
 
-/* Combined color macros */
 #define VGA_COLOR(fg, bg) ((bg << 4) | fg)
 
-/* Function declarations */
-void clear_screen(uint8_t color);
-void putchar(char c, uint8_t color);
-void print(const char* str, uint8_t color);
-void print_number(uint32_t num, uint8_t color);
-void print_hex(uint32_t num, uint8_t color);
+void clearScreen(uint8_t color);
+void printChar(char c, uint8_t color);
+void printStr(const char *str, uint8_t color);
+void printNum(uint32_t num, uint8_t color);
+void printHex(uint32_t num, uint8_t color);
 
-#endif /* KERNEL_PRINT_H */
+#endif

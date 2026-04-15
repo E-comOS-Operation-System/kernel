@@ -21,36 +21,25 @@
 
 #include <stdint.h>
 
-// E-comOS Microkernel - MINIMAL system calls
-// Only hardware-privileged operations in kernel
+#define SYS_IPC_SEND        1
+#define SYS_IPC_RECEIVE     2
+#define SYS_THREAD_YIELD    3
+#define SYS_ADDRESS_MAP     4
+#define SYS_IRQ_WAIT        5
+#define SYS_IRQ_GET_COUNT   6
+#define SYS_IRQ_RESET_COUNT 7
 
-#define SYS_IPC_SEND        1  // Cross-address-space message passing
-#define SYS_IPC_RECEIVE     2  // Receive message (blocking)
-#define SYS_THREAD_YIELD    3  // Yield CPU to scheduler
-#define SYS_ADDRESS_MAP     4  // Map physical page (privileged)
-#define SYS_IRQ_WAIT        5  // Wait for hardware interrupt
-#define SYS_IRQ_GET_COUNT   6  // Get IRQ occurrence count
-#define SYS_IRQ_RESET_COUNT 7  // Reset IRQ occurrence count
+#define BLOCK_REASON_NONE     0
+#define BLOCK_REASON_IRQ_WAIT 1
 
-// Everything else (objects, services, processes) 
-// implemented as USERSPACE services!
+#define IRQ_WAIT_CLEAR  0x01
+#define IRQ_WAIT_NOWAIT 0x02
 
-// Process states
-#define PROCESS_STATE_BLOCKED  1
-#define PROCESS_STATE_READY    2
+#define ERR_TIMEOUT -3
 
-// Block reasons
-#define BLOCK_REASON_NONE      0
-#define BLOCK_REASON_IRQ_WAIT  1
-
-// IRQ wait flags
-#define IRQ_WAIT_CLEAR         0x01
-#define IRQ_WAIT_NOWAIT        0x02
-
-// Error codes
-#define ERR_TIMEOUT            -3
-
-// System call handler
-long syscall_handler(uint32_t syscall_num, uint32_t arg1, uint32_t arg2, uint32_t arg3);
+void syscallIrqInit(void);
+void syscallIrqNotify(uint8_t irqNum);
+void syscallIrqCheckTimeouts(void);
+long syscallHandler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3);
 
 #endif

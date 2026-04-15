@@ -1,200 +1,346 @@
-/* E-comOS Kernel - A Microkernel for E-comOS
-   Copyright (C) 2025,2026 Saladin5101
+/*
+    E-comOS Kernel - Memory Manager
+    Copyright (C) 2025,2026  Saladin5101
 
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published
-   by the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
+    Physical memory window managed: [PHYS_BASE, PHYS_BASE + PHYS_SIZE)
+    = [0x100000, 0x1100000)  (1 MB … 17 MB, 4096 × 4 KB pages)
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+    Page table layout (64-bit, 4-level, identity-mapped):
+      PML4[0] → PDPT[0] → PD[0..3] → PT[0..1023]  (covers 0 … 16 MB)
 */
 
 #include <kernel/mm.h>
+#include <kernel/boot.h>
+#include <kernel/printkit/print.h>
 #include <stdint.h>
 
-#define PAGE_SIZE 4096
-#define MEMORY_START 0x100000 // 1MB
-#define MEMORY_SIZE 0x1000000 // 16MB
-#define MAX_PAGES (MEMORY_SIZE / PAGE_SIZE)
+/* ------------------------------------------------------------------ */
+/* Constants                                                           */
+/* ------------------------------------------------------------------ */
+#define PHYS_BASE  0x100000ULL          /* first managed physical page  */
+#define PHYS_SIZE  (MAX_PAGES * (uint64_t)PAGE_SIZE)  /* 16 MB          */
 
-// Page table management definitions
-#define PAGE_DIRECTORY_ENTRIES 1024
-#define PAGE_TABLE_ENTRIES 1024
+/* Number of pages to reserve for the kernel image.
+ * Computed precisely from linker symbols at runtime; this is the
+ * upper bound used before mmInit has run (should never be needed). */
+#define KERNEL_RESERVED_PAGES_FALLBACK 64u  /* 256 KB conservative bound */
 
-// Page table entry flags
-#define PTE_PRESENT   (1 << 0)
-#define PTE_WRITABLE  (1 << 1)
-#define PTE_USER      (1 << 2)
+/* ------------------------------------------------------------------ */
+/* Global allocator state                                              */
+/* ------------------------------------------------------------------ */
+uint8_t  pageBitmap[MAX_PAGES / 8] = {0};
+uint32_t nextFreePage = 0;
 
-// Page directory entry flags (same as PTE for simplicity)
-#define PDE_PRESENT   PTE_PRESENT
-#define PDE_WRITABLE  PTE_WRITABLE
-#define PDE_USER      PTE_USER
+/* ------------------------------------------------------------------ */
+/* 64-bit page table structures (4-level paging, identity map)        */
+/* ------------------------------------------------------------------ */
+/*
+ * We need: PML4 (1 entry used) → PDPT (1 entry used) → PD (4 entries)
+ * → 4 × PT (1024 entries each).
+ * All structures are 4 KB aligned and stored in BSS so they are
+ * zero-initialised before mmInit runs.
+ *
+ * Entry format (bits):
+ *   [0]   Present
+ *   [1]   Read/Write
+ *   [2]   User/Supervisor
+ *   [12+] Physical address of next-level table (4 KB aligned)
+ */
+#define PT_ENTRIES  512u   /* 64-bit PT has 512 × 8-byte entries        */
+#define PD_ENTRIES  512u
+#define PDPT_ENTRIES 512u
+#define PML4_ENTRIES 512u
 
-uint32_t next_free_page = 0;
+/* Each PT covers 512 × 4 KB = 2 MB.  We need 8 PTs for 16 MB. */
+#define NUM_PTS 8u
 
-// Page table management variables
-static uint32_t* page_directory = 0;
-static uint32_t* page_tables[4] = {0}; // 4 page tables for 16MB address space
-static int page_tables_initialized = 0;
+static uint64_t pml4[PML4_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
+static uint64_t pdpt[PDPT_ENTRIES]  __attribute__((aligned(PAGE_SIZE)));
+static uint64_t pd[PD_ENTRIES]      __attribute__((aligned(PAGE_SIZE)));
+static uint64_t pt[NUM_PTS][PT_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
 
-// Global variable definitions
-uint8_t page_bitmap[MAX_PAGES / 8] = {0};  // Fixed: Changed MAX_PHYS_PAGES to MAX_PAGES
+static int pageTablesReady = 0;
 
-// Helper functions for control registers
-static inline uint64_t read_cr0(void) {
-    uint64_t value;
-    __asm__ volatile("movq %%cr0, %0" : "=r"(value));
-    return value;
+/* ------------------------------------------------------------------ */
+/* Panic helper (no dependency on heap)                               */
+/* ------------------------------------------------------------------ */
+static void __attribute__((noreturn)) mmPanic(const char *msg) {
+    printStr("MM PANIC: ", 0x4F);
+    printStr(msg, 0x4F);
+    __asm__ volatile("cli");
+    while (1) __asm__ volatile("hlt");
 }
 
-static inline void write_cr0(uint64_t value) {
-    __asm__ volatile("movq %0, %%cr0" : : "r"(value) : "memory");
+/* ------------------------------------------------------------------ */
+/* Bitmap helpers                                                      */
+/* ------------------------------------------------------------------ */
+static inline void bitmapSet(uint32_t idx) {
+    pageBitmap[idx >> 3] |= (uint8_t)(1u << (idx & 7u));
 }
 
-static inline void write_cr3(uint64_t value) {
-    __asm__ volatile("movq %0, %%cr3" : : "r"(value) : "memory");
+static inline void bitmapClear(uint32_t idx) {
+    pageBitmap[idx >> 3] &= (uint8_t)~(1u << (idx & 7u));
 }
 
-// Initialize page tables for identity mapping
-static int init_page_tables(void) {
-    if (page_tables_initialized) {
-        return 0;
-    }
-    
-    // Allocate page directory
-    page_directory = (uint32_t*)mm_alloc_page();
-    if (!page_directory) {
-        return -1; // Out of memory
-    }
-    
-    // Initialize page directory entries
-    for (int i = 0; i < PAGE_DIRECTORY_ENTRIES; i++) {
-        page_directory[i] = 0; // Mark as not present initially
-    }
-    
-    // Allocate and initialize page tables for first 16MB
-    for (int i = 0; i < 4; i++) {
-        page_tables[i] = (uint32_t*)mm_alloc_page();
-        if (!page_tables[i]) {
-            return -1; // Out of memory
+static inline int bitmapTest(uint32_t idx) {
+    return (pageBitmap[idx >> 3] >> (idx & 7u)) & 1u;
+}
+
+/* ------------------------------------------------------------------ */
+/* 64-bit identity page table setup                                   */
+/* ------------------------------------------------------------------ */
+/*
+ * Builds a 4-level identity map covering [0, NUM_PTS × 2 MB).
+ * Called from mmInit after the bitmap is ready so that mmAllocPage
+ * is NOT used here — page table memory is statically allocated.
+ *
+ * Postcondition: pml4/pdpt/pd/pt are fully populated;
+ *                pageTablesReady == 1.
+ */
+static void buildPageTables(void) {
+    /* PML4[0] → pdpt */
+    pml4[0] = (uint64_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITABLE;
+
+    /* PDPT[0] → pd */
+    pdpt[0] = (uint64_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE;
+
+    /* PD[i] → pt[i]  (each covers 2 MB) */
+    for (uint32_t i = 0; i < NUM_PTS; i++) {
+        pd[i] = (uint64_t)(uintptr_t)pt[i] | PTE_PRESENT | PTE_WRITABLE;
+
+        /* Fill PT: identity-map 512 × 4 KB pages */
+        for (uint32_t j = 0; j < PT_ENTRIES; j++) {
+            uint64_t phys = (uint64_t)i * PT_ENTRIES * PAGE_SIZE
+                          + (uint64_t)j * PAGE_SIZE;
+            pt[i][j] = phys | PTE_PRESENT | PTE_WRITABLE;
         }
-        
-        // Clear page table
-        for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
-            page_tables[i][j] = 0;
+    }
+
+    pageTablesReady = 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* mmInit                                                              */
+/* ------------------------------------------------------------------ */
+/*
+ * Precondition:  interrupts disabled.
+ * Precondition:  called exactly once.
+ * Postcondition: pageBitmap valid; pageTablesReady == 1.
+ */
+MemoryStatus mmInit(BootParams *bootParams) {
+    /* Step 1: mark everything allocated (deny-by-default) */
+    for (uint32_t i = 0; i < MAX_PAGES / 8u; i++)
+        pageBitmap[i] = 0xFFu;
+    nextFreePage = MAX_PAGES; /* sentinel: no free pages yet */
+
+    /* Step 2: determine kernel image extent from linker symbols */
+    uint64_t kernStart = (uint64_t)(uintptr_t)_kernelStart;
+    uint64_t kernEnd   = (uint64_t)(uintptr_t)_kernelEnd;
+
+    /* Step 3: parse UEFI memory map or use fallback */
+    if (!bootParams
+            || !bootParams->memoryMap
+            || bootParams->memoryMapSize == 0
+            || bootParams->memoryMapDescriptorSize < sizeof(EfiMemoryDescriptor)) {
+        /*
+         * Fallback: assume the entire managed window is conventional RAM
+         * except the kernel image pages.  Used on bare QEMU without a
+         * proper UEFI loader.
+         */
+        for (uint32_t i = 0; i < MAX_PAGES; i++)
+            bitmapClear(i);
+
+        /* Re-mark kernel pages as used */
+        if (kernStart >= PHYS_BASE && kernEnd > kernStart) {
+            uint32_t kFirst = (uint32_t)((kernStart - PHYS_BASE) / PAGE_SIZE);
+            uint32_t kLast  = (uint32_t)((kernEnd   - PHYS_BASE + PAGE_SIZE - 1u)
+                                          / PAGE_SIZE);
+            if (kLast > MAX_PAGES) kLast = MAX_PAGES;
+            for (uint32_t i = kFirst; i < kLast; i++)
+                bitmapSet(i);
+        } else {
+            /* Linker symbols unavailable — use conservative bound */
+            for (uint32_t i = 0; i < KERNEL_RESERVED_PAGES_FALLBACK; i++)
+                bitmapSet(i);
         }
-        
-        // Set up identity mapping for this 4MB region
-        uint32_t base_addr = i * 4 * 1024 * 1024; // 4MB per page table
-        for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
-            uint32_t phys_addr = base_addr + j * PAGE_SIZE;
-            
-            // Only map physical pages that are within our managed memory
-            if (phys_addr >= MEMORY_START && phys_addr < MEMORY_START + MEMORY_SIZE) {
-                page_tables[i][j] = phys_addr | PTE_PRESENT | PTE_WRITABLE;
+
+        printStr("MM: fallback map (no UEFI params)\n", 0x0E);
+        goto findFirst;
+    }
+
+    /* Step 4: walk UEFI memory map */
+    {
+        const uint8_t *base     = (const uint8_t *)bootParams->memoryMap;
+        uint64_t       stride   = bootParams->memoryMapDescriptorSize;
+        uint64_t       numDescs = bootParams->memoryMapSize / stride;
+
+        for (uint64_t d = 0; d < numDescs; d++) {
+            const EfiMemoryDescriptor *desc =
+                (const EfiMemoryDescriptor *)(base + d * stride);
+
+            if (desc->type != EFI_CONVENTIONAL_MEMORY)
+                continue;
+
+            uint64_t regionStart = desc->physicalStart;
+            uint64_t regionPages = desc->numberOfPages;
+
+            /* Overflow guard: skip absurdly large descriptors */
+            if (regionPages > (PHYS_SIZE / PAGE_SIZE))
+                regionPages = PHYS_SIZE / PAGE_SIZE;
+
+            for (uint64_t p = 0; p < regionPages; p++) {
+                uint64_t phys = regionStart + p * (uint64_t)PAGE_SIZE;
+
+                if (phys < PHYS_BASE)
+                    continue;
+                if (phys >= PHYS_BASE + PHYS_SIZE)
+                    break; /* rest of this descriptor is outside window */
+
+                uint32_t idx = (uint32_t)((phys - PHYS_BASE) / PAGE_SIZE);
+                /* idx < MAX_PAGES guaranteed by the range check above */
+                bitmapClear(idx);
             }
         }
-        
-        // Set page directory entry
-        uint32_t page_table_phys = (uint32_t)page_tables[i];
-        page_directory[i] = page_table_phys | PDE_PRESENT | PDE_WRITABLE;
     }
-    
-    page_tables_initialized = 1;
+
+    /* Step 5: re-mark kernel image pages as used */
+    if (kernStart >= PHYS_BASE && kernEnd > kernStart) {
+        uint32_t kFirst = (uint32_t)((kernStart - PHYS_BASE) / PAGE_SIZE);
+        uint32_t kLast  = (uint32_t)((kernEnd - PHYS_BASE + PAGE_SIZE - 1u)
+                                      / PAGE_SIZE);
+        if (kLast > MAX_PAGES) kLast = MAX_PAGES;
+        for (uint32_t i = kFirst; i < kLast; i++)
+            bitmapSet(i);
+    } else {
+        for (uint32_t i = 0; i < KERNEL_RESERVED_PAGES_FALLBACK; i++)
+            bitmapSet(i);
+    }
+
+findFirst:
+    /* Step 6: find first free page */
+    nextFreePage = MAX_PAGES; /* assume none */
+    for (uint32_t i = 0; i < MAX_PAGES; i++) {
+        if (!bitmapTest(i)) {
+            nextFreePage = i;
+            break;
+        }
+    }
+
+    /* Step 7: build 64-bit page tables (static memory, no alloc needed) */
+    buildPageTables();
+
+    /* Step 8: report */
+    uint32_t freeCount = 0;
+    for (uint32_t i = 0; i < MAX_PAGES; i++)
+        if (!bitmapTest(i)) freeCount++;
+
+    printStr("MM: free pages: ", 0x0A);
+    printNum(freeCount, 0x0A);
+    printStr(" / ", 0x0A);
+    printNum(MAX_PAGES, 0x0A);
+    printStr("  first free: ", 0x0A);
+    printNum(nextFreePage, 0x0A);
+    printStr("\n", 0x0A);
+
+    if (freeCount == 0)
+        return MEMORY_ERROR_NOMEM;
+
+    return MEMORY_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ */
+/* mmAllocPage                                                         */
+/* ------------------------------------------------------------------ */
+/*
+ * NOT interrupt-safe.  Caller must disable interrupts if called after
+ * sti, or use an external lock.
+ */
+void *mmAllocPage(void) {
+    for (uint32_t i = nextFreePage; i < MAX_PAGES; i++) {
+        if (!bitmapTest(i)) {
+            bitmapSet(i);
+            nextFreePage = i + 1u;
+            return (void *)(uintptr_t)(PHYS_BASE + (uint64_t)i * PAGE_SIZE);
+        }
+    }
     return 0;
 }
 
-void* mm_alloc_page(void) {
-    for (uint32_t i = next_free_page; i < MAX_PAGES; i++) {
-        uint32_t byte_idx = i / 8;
-        uint32_t bit_idx = i % 8;
-        if (!(page_bitmap[byte_idx] & (1 << bit_idx))) {
-            page_bitmap[byte_idx] |= (1 << bit_idx);
-            next_free_page = i + 1;
-            return (void*)(MEMORY_START + i * PAGE_SIZE);
-        }
-    }
-    return 0; // Out of memory
+/* ------------------------------------------------------------------ */
+/* mmFreePage                                                          */
+/* ------------------------------------------------------------------ */
+void mmFreePage(void *page) {
+    uint64_t addr = (uint64_t)(uintptr_t)page;
+    if (addr < PHYS_BASE || addr >= PHYS_BASE + PHYS_SIZE)
+        return;
+    if (addr & (PAGE_SIZE - 1u))
+        return; /* not page-aligned — refuse silently */
+    uint32_t idx = (uint32_t)((addr - PHYS_BASE) / PAGE_SIZE);
+    bitmapClear(idx);
+    if (idx < nextFreePage)
+        nextFreePage = idx;
 }
 
-void mm_free_page(void* page) {
-    uint32_t addr = (uint32_t)page;
-    if (addr < MEMORY_START) return;
-    uint32_t page_idx = (addr - MEMORY_START) / PAGE_SIZE;
-    if (page_idx >= MAX_PAGES) return;
-    uint32_t byte_idx = page_idx / 8;
-    uint32_t bit_idx = page_idx % 8;
-    page_bitmap[byte_idx] &= ~(1 << bit_idx);
-    if (page_idx < next_free_page) {
-        next_free_page = page_idx;
-    }
+/* ------------------------------------------------------------------ */
+/* mmMapPage                                                           */
+/* ------------------------------------------------------------------ */
+int mmMapPage(uint32_t vaddr, uint32_t paddr, uint32_t flags) {
+    if (!pageTablesReady)
+        return -1;
+
+    uint32_t pdIdx  = (vaddr >> 21) & 0x1FFu; /* PD index (2 MB granule) */
+    uint32_t ptIdx  = (vaddr >> 12) & 0x1FFu; /* PT index */
+
+    if (pdIdx >= NUM_PTS)
+        return -1; /* outside identity-mapped range */
+
+    uint64_t entry = (uint64_t)paddr | PTE_PRESENT;
+    if (flags & MM_FLAG_WRITE) entry |= PTE_WRITABLE;
+    if (flags & MM_FLAG_USER)  entry |= PTE_USER;
+
+    pt[pdIdx][ptIdx] = entry;
+
+    /* Invalidate TLB entry */
+    __asm__ volatile("invlpg (%0)" : : "r"((uintptr_t)vaddr) : "memory");
+    return 0;
 }
 
-int mm_map_page(uint32_t virtual_addr, uint32_t physical_addr, uint32_t flags) {
-    // Initialize page tables if not already done
-    if (!page_tables_initialized) {
-        if (init_page_tables() != 0) {
-            return -1; // Initialization failed
-        }
-    }
-    
-    // Validate addresses
-    if (physical_addr < MEMORY_START || physical_addr >= MEMORY_START + MEMORY_SIZE) {
-        return -1; // Physical address out of range
-    }
-    
-    if (virtual_addr >= 16 * 1024 * 1024) { // Only support first 16MB virtual address space
-        return -1; // Virtual address out of range
-    }
-    
-    // Calculate page directory index and page table index
-    uint32_t page_dir_index = virtual_addr >> 22;        // Top 10 bits
-    uint32_t page_table_index = (virtual_addr >> 12) & 0x3FF; // Next 10 bits
-    
-    // Check if we have a page table for this region
-    if (page_dir_index >= 4 || !page_tables[page_dir_index]) {
-        return -1; // Page table not available
-    }
-    
-    // Set the page table entry
-    uint32_t* page_table = page_tables[page_dir_index];
-    page_table[page_table_index] = physical_addr | flags | PTE_PRESENT;
-    
-    return 0; // Success
+/* ------------------------------------------------------------------ */
+/* mmUnmapPage                                                         */
+/* ------------------------------------------------------------------ */
+int mmUnmapPage(uint32_t vaddr) {
+    if (!pageTablesReady)
+        return -1;
+    uint32_t pdIdx = (vaddr >> 21) & 0x1FFu;
+    uint32_t ptIdx = (vaddr >> 12) & 0x1FFu;
+    if (pdIdx >= NUM_PTS)
+        return -1;
+    pt[pdIdx][ptIdx] = 0;
+    __asm__ volatile("invlpg (%0)" : : "r"((uintptr_t)vaddr) : "memory");
+    return 0;
 }
 
-// Helper function to get page directory physical address for CR3
-uint32_t mm_get_page_directory(void) {
-    if (!page_tables_initialized) {
-        if (init_page_tables() != 0) {
-            return 0;
-        }
-    }
-    return (uint32_t)page_directory;
-}
+/* ------------------------------------------------------------------ */
+/* mmEnablePaging                                                      */
+/* ------------------------------------------------------------------ */
+/*
+ * Precondition: buildPageTables() has been called (pageTablesReady == 1).
+ * Panics if page tables are not ready — silent failure here would cause
+ * undefined behaviour on the first memory access after return.
+ */
+void mmEnablePaging(void) {
+    if (!pageTablesReady)
+        mmPanic("mmEnablePaging called before page tables are built");
 
-// Helper function to enable paging (should be called from architecture-specific code)
-void mm_enable_paging(void) {
-    uint32_t cr3 = mm_get_page_directory();
-    if (cr3) {
-        // Fixed inline assembly for x86-64
-        uint64_t cr3_value = (uint64_t)cr3;
-        __asm__ volatile (
-            "movq %0, %%rax\n"          // Load CR3 value into RAX
-            "movq %%rax, %%cr3\n"       // Move RAX to CR3
-            "movq %%cr0, %%rax\n"       // Read CR0 into RAX
-            "orl $0x80000000, %%eax\n"  // Set PG bit (bit 31) - Using ORL for 32-bit operation
-            "movq %%rax, %%cr0\n"       // Write back to CR0
-            : 
-            : "r"(cr3_value)           // Input: CR3 value
-            : "rax", "memory"           // Clobbered registers
-        );
-    }
+    uint64_t cr3 = (uint64_t)(uintptr_t)pml4;
+
+    __asm__ volatile(
+        "movq %0, %%cr3\n"
+        "movq %%cr0, %%rax\n"
+        "orl  $0x80000000, %%eax\n"
+        "movq %%rax, %%cr0\n"
+        :
+        : "r"(cr3)
+        : "rax", "memory"
+    );
 }

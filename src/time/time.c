@@ -1,14 +1,29 @@
+/*
+    E-comOS Kernel - Time subsystem
+    Copyright (C) 2025,2026  Saladin5101
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #include <kernel/time.h>
 
-// Simple time counter (needs timer interrupt to update)
-static volatile uint64_t system_ticks = 0;
+static volatile uint64_t systemTicks = 0;
 
-uint64_t time_get_current_ms(void) {
-    // Assume each tick is 1ms (needs timer configuration)
-    return system_ticks;
+uint64_t timeGetCurrentMs(void) {
+    return systemTicks;
 }
 
-// Timer interrupt handler (needs to be called from interrupt module)
-void time_tick(void) {
-    system_ticks++;
+void timeTick(void) {
+    systemTicks++;
 }

@@ -1,9 +1,9 @@
 /*
- * E-comOS Microkernel - x86_64 architecture definitions
+ * E-comOS Microkernel - universal architecture definitions
  */
 
-#ifndef KERNEL_ARCH_X86_64_H
-#define KERNEL_ARCH_X86_64_H
+#ifndef KERNEL_ARCH_UNIVERSAL_H
+#define KERNEL_ARCH_UNIVERSAL_H
 
 #include <stdint.h>
 
@@ -13,6 +13,7 @@ struct cpu_context {
     uint32_t esi, edi, esp, ebp;
     uint32_t eip, eflags;
 };
+
 
 // Interrupt handling
 #define IRQ_TIMER    0
@@ -24,7 +25,6 @@ void arch_enable_interrupts(void);
 void arch_disable_interrupts(void);
 void arch_halt(void);
 void arch_context_switch(struct cpu_context *old, struct cpu_context *new);
-
 // System call entry
 void syscall_entry(void);
 

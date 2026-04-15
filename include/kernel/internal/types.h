@@ -9,9 +9,10 @@
 #include <stddef.h>
 
 // Kernel object IDs
-typedef uint32_t thread_id_t;
-typedef uint32_t process_id_t;
-typedef uint32_t capability_id_t;
+typedef uint32_t threadId_t;
+typedef uint32_t processId_t;
+typedef uint32_t capability_t;
+
 
 // Error codes
 #define KERNEL_OK           0
@@ -24,5 +25,15 @@ typedef uint32_t capability_id_t;
 #define MAX_THREADS        256
 #define MAX_PROCESSES      64
 #define MAX_CAPABILITIES   1024
+
+typedef unsigned char   u8;
+typedef unsigned short  u16;
+typedef unsigned int    u32;
+typedef unsigned long   u64; 
+
+typedef signed char     s8;
+typedef signed short    s16;
+typedef signed int      s32;
+typedef signed long     s64;  
 
 #endif

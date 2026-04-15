@@ -1,46 +1,33 @@
 /*
- * E-comOS Microkernel - Process system (万物皆进程)
- */
+    E-comOS Kernel - Process System
+    Copyright (C) 2025,2026  Saladin5101
+*/
 
 #ifndef KERNEL_PROCESS_H
 #define KERNEL_PROCESS_H
 
 #include <stdint.h>
-#include <kernel/object.h>
 
-typedef uint32_t process_id_t;
+typedef uint32_t ProcessId;
 
-// Process types (everything runs as a process)
-#define PROCESS_TYPE_KERNEL     0  // Minimal kernel threads
-#define PROCESS_TYPE_SERVICE    1  // System services (VGA, FS, etc.)
-#define PROCESS_TYPE_DRIVER     2  // Device drivers
-#define PROCESS_TYPE_USER       3  // User applications
+#define PROCESS_TYPE_KERNEL  0
+#define PROCESS_TYPE_SERVICE 1
+#define PROCESS_TYPE_DRIVER  2
+#define PROCESS_TYPE_USER    3
 
-struct process {
-    process_id_t id;
-    uint32_t type;
-    uint32_t address_space;
-    object_id_t *objects;      // Objects owned by this process
-    uint32_t object_count;
-    uint32_t state;
-
-    uint8_t block_reason;       // Reason for blocking (e.g., IRQ_WAIT)
-    int32_t last_error;         // Last error code
-
+typedef struct {
+    ProcessId id;
+    uint32_t  type;
+    uint32_t  addressSpace;
+    uint32_t  state;
+    uint8_t   blockReason;
+    int32_t   lastError;
     union {
-        uint8_t irq_num;        // IRQ number (if waiting for IRQ)
-    } block_data;
-};
-typedef struct process process_t;
-// Process operations
-process_id_t process_create(uint32_t type, void *entry_point);
-int process_destroy(process_id_t pid);
-int process_grant_object(process_id_t pid, object_id_t obj);
+        uint8_t irqNum;
+    } blockData;
+} Process;
 
-// Scheduler functions
-process_t* sched_get_process_by_pid(process_id_t pid);
-process_t* sched_get_current_process(void);
-process_id_t sched_get_current_pid(void);
-void sched_yield(void);
+ProcessId processCreate(uint32_t type, void *entryPoint);
+int       processDestroy(ProcessId pid);
 
 #endif

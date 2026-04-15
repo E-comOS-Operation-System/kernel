@@ -103,6 +103,7 @@ my $config = {
             'src/kernel/main.c',
             'src/kernel/syscall.c',
             'src/kernel/init.c',
+            'src/kernel/debug.c',
             'src/ipc/ipc.c',
             'src/mm/mm.c',
             'src/sched/sched.c',

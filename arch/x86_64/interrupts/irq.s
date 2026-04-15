@@ -76,7 +76,7 @@ irq_common_stub:
     # irq_handler takes a struct registers by value — pass int_no as arg
     movq 120(%rsp), %rdi    # int_no (after 15 * 8 = 120 bytes of saved regs)
 
-    call irq_handler_asm_shim
+    call irqHandlerAsmShim
 
     movw $0x10, %ax
     movw %ax, %ds

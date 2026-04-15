@@ -1,110 +1,85 @@
 /*
-    E-comOS Kernel - A Microkernel for E-comOS
+    E-comOS Kernel - Memory Manager Interface
     Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+    Invariant: pageBitmap bit i == 1  ↔  physical page i is allocated.
+    Invariant: nextFreePage ≤ MAX_PAGES at all times.
 */
 
 #ifndef KERNEL_MM_H
 #define KERNEL_MM_H
 
 #include <stdint.h>
+#include <kernel/boot.h>
 
-/* Memory management configuration constants */
-#define PAGE_SIZE 4096                    // Page size in bytes (4KB)
-#define MAX_PHYS_PAGES 4096               // Maximum number of physical pages (16MB memory)
-#define KERNEL_BASE 0x100000              // Kernel base address (1MB)
+#define PAGE_SIZE       4096u
+#define MAX_PHYS_PAGES  4096u   /* manages 16 MB: [0x100000, 0x1100000) */
+#define MAX_PAGES       MAX_PHYS_PAGES
+#define KERNEL_BASE     0x100000u
 
-/* Memory mapping flags */
-#define MM_FLAG_READ    (1 << 0)          // Read permission
-#define MM_FLAG_WRITE   (1 << 1)          // Write permission
-#define MM_FLAG_EXEC    (1 << 2)          // Execute permission
-#define MM_FLAG_USER    (1 << 3)          // User space access
-#define MM_FLAG_DEVICE  (1 << 4)          // Device memory mapping
-#define MM_FLAG_CACHED  (1 << 5)          // Cache enabled
+/* x86 page-table entry flags */
+#define PTE_PRESENT  (1u << 0)
+#define PTE_WRITABLE (1u << 1)
+#define PTE_USER     (1u << 2)
 
-/* Combined flag definitions */
-#define MM_FLAG_KERNEL_RW (MM_FLAG_READ | MM_FLAG_WRITE)     // Kernel read-write permissions
-#define MM_FLAG_USER_RO   (MM_FLAG_READ | MM_FLAG_USER)      // User read-only permissions
-#define MM_FLAG_USER_RW   (MM_FLAG_READ | MM_FLAG_WRITE | MM_FLAG_USER) // User read-write permissions
+/* Higher-level mapping flags (translated to PTE flags by mmMapPage) */
+#define MM_FLAG_READ    (1u << 0)
+#define MM_FLAG_WRITE   (1u << 1)
+#define MM_FLAG_EXEC    (1u << 2)
+#define MM_FLAG_USER    (1u << 3)
+#define MM_FLAG_DEVICE  (1u << 4)
+#define MM_FLAG_CACHED  (1u << 5)
 
-/* Error code definitions */
-#define MM_SUCCESS      0                 // Operation successful
-#define MM_ERROR_NOMEM  -1                // Out of memory
-#define MM_ERROR_INVALID -2               // Invalid parameter
-#define MM_ERROR_BUSY   -3                // Resource busy
+#define MM_FLAG_KERNEL_RW (MM_FLAG_READ | MM_FLAG_WRITE)
+#define MM_FLAG_USER_RO   (MM_FLAG_READ | MM_FLAG_USER)
+#define MM_FLAG_USER_RW   (MM_FLAG_READ | MM_FLAG_WRITE | MM_FLAG_USER)
 
-/**
- * Allocates a physical memory page
- * 
- * @return Returns physical address of allocated page on success, NULL on failure
- * @note The allocated page is uninitialized, content is undefined
+typedef enum {
+    MEMORY_SUCCESS              =  0,
+    MEMORY_ERROR_INVALID_PARAMS = -1,
+    MEMORY_ERROR_NOMEM          = -2,
+    MEMORY_ERROR_BUSY           = -3
+} MemoryStatus;
+
+/*
+ * mmInit — initialise the physical page allocator.
+ *
+ * Precondition:  called exactly once, before any mmAllocPage call.
+ * Precondition:  interrupts are disabled.
+ * Postcondition: pageBitmap reflects all usable physical pages;
+ *                kernel image pages are marked allocated.
+ * Postcondition: nextFreePage points to the first free page index,
+ *                or equals MAX_PAGES if no free pages exist.
+ *
+ * bootParams may be NULL; in that case a conservative fallback is used.
  */
-void* mm_alloc_page(void);
+MemoryStatus mmInit(BootParams *bootParams);
 
-/**
- * Frees a previously allocated physical memory page
- * 
- * @param page Physical address of the page to free
- * @note The address must have been previously allocated by mm_alloc_page
+/*
+ * mmAllocPage — allocate one physical page (4 KB).
+ * Returns physical address, or NULL if OOM.
+ * NOT interrupt-safe; caller must disable interrupts if needed.
  */
-void mm_free_page(void* page);
+void *mmAllocPage(void);
 
-/**
- * Establishes mapping from virtual address to physical address
- * 
- * @param virtual_addr Virtual address (must be page-aligned)
- * @param physical_addr Physical address (must be page-aligned)
- * @param flags Mapping flags (combination of MM_FLAG_*)
- * @return Returns MM_SUCCESS on success, error code on failure
+/* mmFreePage — release a page previously returned by mmAllocPage. */
+void  mmFreePage(void *page);
+
+/*
+ * mmMapPage — insert a vaddr→paddr mapping into the current page tables.
+ * flags: combination of PTE_* constants.
  */
-int mm_map_page(uint32_t virtual_addr, uint32_t physical_addr, uint32_t flags);
+int   mmMapPage(uint32_t vaddr, uint32_t paddr, uint32_t flags);
+int   mmUnmapPage(uint32_t vaddr);
 
-/**
- * Unmaps a virtual address mapping
- * 
- * @param virtual_addr Virtual address to unmap
- * @return Returns MM_SUCCESS on success, error code on failure
+/*
+ * mmEnablePaging — load CR3 and set CR0.PG.
+ * Precondition: page tables built by initPageTables() (called from mmInit).
+ * Panics if page tables are not ready.
  */
-int mm_unmap_page(uint32_t virtual_addr);
+void  mmEnablePaging(void);
 
-/**
- * Queries mapping information for a virtual address
- * 
- * @param virtual_addr Virtual address to query
- * @param[out] physical_addr Returns mapped physical address
- * @param[out] flags Returns mapping flags
- * @return Returns MM_SUCCESS on success, error code on failure
- */
-int mm_query_page(uint32_t virtual_addr, uint32_t* physical_addr, uint32_t* flags);
+extern uint8_t  pageBitmap[MAX_PAGES / 8];
+extern uint32_t nextFreePage;
 
-/**
- * Initializes the memory management system
- * 
- * @param memory_size Available physical memory size in bytes
- * @return Returns MM_SUCCESS on success, error code on failure
- */
-int mm_init(uint32_t memory_size);
-
-/* Compatibility definitions for existing code */
-#define PTE_PRESENT   (1 << 0)    // Page present flag
-#define PTE_WRITABLE  (1 << 1)    // Page writable flag
-#define MAX_PAGES MAX_PHYS_PAGES
-/* Paging function declarations */
-void mm_enable_paging(void);
-
-/* Global variable declarations */
-extern uint8_t page_bitmap[];     // Page bitmap array
-
-#endif /* KERNEL_MM_H */
+#endif

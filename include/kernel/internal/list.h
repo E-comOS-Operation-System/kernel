@@ -1,25 +1,26 @@
 /*
- * E-comOS Microkernel - Linked list implementation
- */
+    E-comOS Kernel - Doubly-linked List
+    Copyright (C) 2025,2026  Saladin5101
+*/
 
 #ifndef KERNEL_INTERNAL_LIST_H
 #define KERNEL_INTERNAL_LIST_H
 
-// Simple doubly-linked list
-struct list_node {
-    struct list_node *next;
-    struct list_node *prev;
-};
+#include <stddef.h>
 
-struct list_head {
-    struct list_node *first;
-    struct list_node *last;
-    size_t count;
-};
+typedef struct ListNode {
+    struct ListNode *next;
+    struct ListNode *prev;
+} ListNode;
 
-// List operations
-void list_init(struct list_head *head);
-void list_add(struct list_head *head, struct list_node *node);
-void list_remove(struct list_head *head, struct list_node *node);
+typedef struct {
+    ListNode *first;
+    ListNode *last;
+    size_t    count;
+} ListHead;
+
+void listInit(ListHead *head);
+void listAdd(ListHead *head, ListNode *node);
+void listRemove(ListHead *head, ListNode *node);
 
 #endif

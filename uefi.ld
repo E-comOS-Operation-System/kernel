@@ -5,7 +5,9 @@ OUTPUT_ARCH(i386:x86-64)
 SECTIONS
 {
     . = 0x100000;
-    
+
+    _kernelStart = .;
+
     .text : {
         *(.text)
     }
@@ -36,5 +38,5 @@ SECTIONS
     }
 
     . = ALIGN(4096);
-    _end = .;
+    _kernelEnd = .;
 }

@@ -1,40 +1,53 @@
 /*
- * UEFI Bootloader Entry Point - 64-bit version
- * This file defines the `_start` function, which is the entry point for the kernel.
+ * E-comOS - Kernel entry point (64-bit UEFI)
+ *
+ * The UEFI firmware calls this image as a standard EFI application.
+ * By the time we reach _start the CPU is already in 64-bit long mode.
+ *
+ * Calling convention (System V AMD64 ABI):
+ *   rdi = first argument = BootParams* (set by the bootloader before jmp)
+ *
+ * We preserve rdi across the register clear so kernelMain receives it.
  */
 
 .text
 .global _start
-.extern kernel_main
+.extern kernelMain
 
 _start:
-    /* Set up the stack pointer */
-    mov $0x70000, %rsp
+    /* Save BootParams* before we clobber registers */
+    movq %rdi, %r15
+
+    /* Set up a known-good kernel stack */
+    movq $0x70000, %rsp
 
     /* Clear direction flag */
     cld
-    
-    /* Clear registers */
-    xor %rax, %rax
-    xor %rbx, %rbx
-    xor %rcx, %rcx
-    xor %rdx, %rdx
-    xor %rsi, %rsi
-    xor %rdi, %rdi
-    xor %rbp, %rbp
-    xor %r8, %r8
-    xor %r9, %r9
-    xor %r10, %r10
-    xor %r11, %r11
-    xor %r12, %r12
-    xor %r13, %r13
-    xor %r14, %r14
-    xor %r15, %r15
 
-    /* Call the kernel main function */
-    call kernel_main
+    /* Zero all GP registers except r15 (holds BootParams*) */
+    xorq %rax, %rax
+    xorq %rbx, %rbx
+    xorq %rcx, %rcx
+    xorq %rdx, %rdx
+    xorq %rsi, %rsi
+    xorq %rbp, %rbp
+    xorq %r8,  %r8
+    xorq %r9,  %r9
+    xorq %r10, %r10
+    xorq %r11, %r11
+    xorq %r12, %r12
+    xorq %r13, %r13
+    xorq %r14, %r14
 
-    /* Halt the CPU if kernel_main returns */
+    /* Restore BootParams* into rdi (first argument) */
+    movq %r15, %rdi
+    xorq %r15, %r15
+
+    /* Call kernelMain(BootParams *bootParams) */
+    call kernelMain
+
+    /* kernelMain must never return; halt if it does */
 .hang:
+    cli
     hlt
     jmp .hang

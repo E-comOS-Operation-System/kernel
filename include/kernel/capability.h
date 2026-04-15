@@ -1,37 +1,33 @@
 /*
- * E-comOS Microkernel - Capability system
- */
+    E-comOS Kernel - Capability System
+    Copyright (C) 2025,2026  Saladin5101
+*/
 
 #ifndef KERNEL_CAPABILITY_H
 #define KERNEL_CAPABILITY_H
 
 #include <stdint.h>
 
-typedef uint32_t capability_t;
+#define CAP_TYPE_MEMORY   1
+#define CAP_TYPE_IRQ      2
+#define CAP_TYPE_IPC      3
+#define CAP_TYPE_IO_PORT  4
 
-// Capability types
-#define CAP_TYPE_MEMORY     1
-#define CAP_TYPE_IRQ        2
-#define CAP_TYPE_IPC        3
-#define CAP_TYPE_IO_PORT    4
+#define CAP_RIGHT_READ    (1 << 0)
+#define CAP_RIGHT_WRITE   (1 << 1)
+#define CAP_RIGHT_EXECUTE (1 << 2)
+#define CAP_RIGHT_GRANT   (1 << 3)
 
-// Capability rights
-#define CAP_RIGHT_READ      (1 << 0)
-#define CAP_RIGHT_WRITE     (1 << 1)
-#define CAP_RIGHT_EXECUTE   (1 << 2)
-#define CAP_RIGHT_GRANT     (1 << 3)
-
-struct capability {
+typedef struct {
     uint32_t type;
     uint32_t rights;
-    uint32_t object_id;
-    uint32_t base_addr;
+    uint32_t objectId;
+    uint32_t baseAddr;
     uint32_t size;
-};
+} Capability;
 
-// Capability operations
-int cap_grant(thread_id_t target, capability_t cap);
-int cap_revoke(capability_t cap);
-int cap_check(capability_t cap, uint32_t required_rights);
+int capGrant(uint32_t targetPid, Capability cap);
+int capRevoke(Capability cap);
+int capCheck(Capability cap, uint32_t requiredRights);
 
 #endif

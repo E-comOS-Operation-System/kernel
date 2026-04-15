@@ -1,34 +1,86 @@
 /*
-    E-comOS Kernel - A Microkernel for E-comOS
+    E-comOS Kernel - Boot Parameters
     Copyright (C) 2025,2026  Saladin5101
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+    Precondition:  filled by the UEFI bootloader before jumping to _start.
+    Postcondition: read-only after kernelMain receives it.
 */
 
 #ifndef KERNEL_BOOT_H
 #define KERNEL_BOOT_H
 
 #include <stdint.h>
+#include <kernel/internal/types.h>
+/* UEFI memory types (UEFI spec 2.x Table 7-6) */
+#define EFI_RESERVED_MEMORY_TYPE   0
+#define EFI_LOADER_CODE            1
+#define EFI_LOADER_DATA            2
+#define EFI_BOOT_SERVICES_CODE     3
+#define EFI_BOOT_SERVICES_DATA     4
+#define EFI_RUNTIME_SERVICES_CODE  5
+#define EFI_RUNTIME_SERVICES_DATA  6
+#define EFI_CONVENTIONAL_MEMORY    7
+#define EFI_UNUSABLE_MEMORY        8
+#define EFI_ACPI_RECLAIM_MEMORY    9
+#define EFI_ACPI_MEMORY_NVS        10
+#define EFI_MEMORY_MAPPED_IO       11
+#define EFI_MEMORY_MAPPED_IO_PORT  12
+#define EFI_PAL_CODE               13
 
-#define MULTIBOOT_MAGIC 0x2BADB002
-#define MULTIBOOT_FLAG_MEM 0x01
+/*
+ * EFI_MEMORY_DESCRIPTOR — layout matches UEFI spec.
+ * descSize from GetMemoryMap() may be larger than sizeof this struct;
+ * always use bootParams->memoryDescriptorSize to stride the array.
+ */
+typedef struct {
+    uint32_t type;
+    uint32_t _pad;           /* UEFI spec: 4-byte pad before physicalStart */
+    uint64_t physicalStart;
+    uint64_t virtualStart;
+    uint64_t numberOfPages;  /* 4 KB EFI pages */
+    uint64_t attribute;
+} __attribute__((packed)) EfiMemoryDescriptor;
 
-struct multiboot_info {
-    uint32_t flags;
-    uint32_t mem_lower;
-    uint32_t mem_upper;
-    // ... other fields as needed
-};
+/* Passed from bootloader to kernelMain via rdi (System V AMD64 ABI) */
+typedef struct {
+    u64 signature;                       // Magic number for validation
+    u32 version;                         // Structure version
+    u32 size;                            // Size of this structure
+
+    u64 memoryMap;
+    u64 memoryMapSize;
+    u64 memoryMapKey;
+    u64 memoryMapDescriptorSize;
+    u64 memoryMapDescriptorVersion;
+
+    u64 frameBuffer;                  // Address of framebuffer
+    u32 frameBufferWidth;
+    u32 frameBufferHeight;
+    u32 frameBufferPitch;
+    u32 frameBufferBpp;
+
+    void* acpiRsdt;
+    void* smbiosTable;
+    u32 daemonProcessID;
+    u64 sharedHeaderPhys;
+    u64 kernelBase;
+    u64 kernelSize;
+    u64 kernelEntry;
+
+    char commandLine[256];             // Optional command line for kernel
+
+    void* runtimeService;
+    u64 rtServicePhys;
+    u64 sharedBuffer;
+    uint64_t sharedBufferSize;
+}BootParams;
+/*
+ * Linker-provided symbols marking the kernel image boundaries.
+ * Used by mmInit to precisely reserve kernel pages.
+ * Declared as arrays so taking their address gives the symbol value
+ * without an extra indirection.
+ */
+extern uint8_t _kernelStart[];
+extern uint8_t _kernelEnd[];
 
 #endif

@@ -1,11 +1,25 @@
 /*
- * E-comOS - 中断服务例程C处理程序
- */
+    E-comOS Kernel - ISR C handler
+    Copyright (C) 2025,2026  Saladin5101
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 #include <stdint.h>
 #include <kernel/printkit/print.h>
 
-static const char* exception_messages[] = {
+static const char *exceptionMessages[] = {
     "Division By Zero",
     "Debug",
     "Non Maskable Interrupt",
@@ -32,16 +46,16 @@ static const char* exception_messages[] = {
     "Reserved", "Reserved", "Reserved"
 };
 
-/* Called from isr.s with (int_no, err_code) in rdi, rsi */
-void isr_handler(uint64_t int_no, uint64_t err_code) {
-    (void)err_code;
-    if (int_no < 32) {
-        print("Exception: ", 0x4F);
-        print(exception_messages[int_no], 0x4F);
-        print("\n", 0x4F);
-        if (int_no == 8 || int_no == 13 || int_no == 14) {
-            print("System halted\n", 0x4F);
-            while (1) __asm__ volatile ("cli; hlt");
+void isrHandler(uint64_t intNo, uint64_t errCode) {
+    (void)errCode;
+    if (intNo < 32) {
+        printStr("Exception: ", 0x4F);
+        printStr(exceptionMessages[intNo], 0x4F);
+        printStr("\n", 0x4F);
+        if (intNo == 8 || intNo == 13 || intNo == 14) {
+            printStr("System halted\n", 0x4F);
+            while (1)
+                __asm__ volatile("cli; hlt");
         }
     }
 }

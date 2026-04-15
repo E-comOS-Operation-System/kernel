@@ -115,7 +115,7 @@ syscall_stub:
     movq  96(%rsp), %rdx   # saved rcx -> arg2
     movq  88(%rsp), %rcx   # saved rdx -> arg3
 
-    call syscall_handler
+    call syscallHandler
 
     # store return value back into saved rax slot
     movq %rax, 112(%rsp)
@@ -144,7 +144,7 @@ isr_common_stub:
     movq 120(%rsp), %rdi    # int_no  (after 15 pushq = 120 bytes)
     movq 128(%rsp), %rsi    # err_code
 
-    call isr_handler
+    call isrHandler
 
     movw $0x10, %ax
     movw %ax, %ds
