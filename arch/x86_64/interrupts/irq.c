@@ -1,5 +1,5 @@
 /*
-    E-comOS Kernel - IRQ handler (64-bit)
+    E-com_os Kernel - IRQ handler (64-bit)
     Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
@@ -34,7 +34,7 @@ static inline uint8_t inb(uint16_t port) {
     return ret;
 }
 
-void irqRemap(void) {
+void irq_remap(void) {
     uint8_t a1 = inb(PIC1_DATA);
     uint8_t a2 = inb(PIC2_DATA);
     outb(PIC1_CMD,  0x11);
@@ -49,35 +49,35 @@ void irqRemap(void) {
     outb(PIC2_DATA, a2);
 }
 
-static void irqAck(uint8_t irq) {
+static void irq_ack(uint8_t irq) {
     if (irq >= 8)
         outb(PIC2_CMD, 0x20);
     outb(PIC1_CMD, 0x20);
 }
 
-static void (*irqHandlers[16])(void) = {0};
+static void (*irq_handlers[16])(void) = {0};
 
-void irqInstallHandler(uint8_t irq, void (*handler)(void)) {
+void irq_install_handler(uint8_t irq, void (*handler)(void)) {
     if (irq < 16)
-        irqHandlers[irq] = handler;
+        irq_handlers[irq] = handler;
 }
 
-void irqUninstallHandler(uint8_t irq) {
+void irq_uninstall_handler(uint8_t irq) {
     if (irq < 16)
-        irqHandlers[irq] = 0;
+        irq_handlers[irq] = 0;
 }
 
-static void timerHandler(void) {
-    timeTick();
+static void timer_handler(void) {
+    time_tick();
 }
 
-void irqHandlerAsmShim(uint64_t vec) {
+void irq_handler_asm_shim(uint64_t vec) {
     uint8_t irq = (uint8_t)(vec - 32);
-    if (irq < 16 && irqHandlers[irq])
-        irqHandlers[irq]();
-    irqAck(irq);
+    if (irq < 16 && irq_handlers[irq])
+        irq_handlers[irq]();
+    irq_ack(irq);
 }
 
-void irqInitTimer(void) {
-    irqInstallHandler(0, timerHandler);
+void irq_init_timer(void) {
+    irq_install_handler(0, timer_handler);
 }

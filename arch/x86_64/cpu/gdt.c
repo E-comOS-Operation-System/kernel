@@ -1,5 +1,5 @@
 /*
-    E-comOS Kernel - Global Descriptor Table + TSS (64-bit)
+    E-com_os Kernel - Global Descriptor Table + TSS (64-bit)
     Copyright (C) 2025,2026  Saladin5101
 
     GDT layout:
@@ -21,13 +21,13 @@
 /* GDT entry (8 bytes)                                                */
 /* ------------------------------------------------------------------ */
 typedef struct {
-    uint16_t limitLow;
-    uint16_t baseLow;
-    uint8_t  baseMiddle;
+    uint16_t limit_low;
+    uint16_t base_low;
+    uint8_t  base_middle;
     uint8_t  access;
     uint8_t  granularity;
-    uint8_t  baseHigh;
-} __attribute__((packed)) GdtEntry;
+    uint8_t  base_high;
+} __attribute__((packed)) gdt_entry;
 
 /* ------------------------------------------------------------------ */
 /* GDTR (10 bytes for 64-bit mode)                                    */
@@ -35,21 +35,21 @@ typedef struct {
 typedef struct {
     uint16_t limit;
     uint64_t base;
-} __attribute__((packed)) GdtPtr64;
+} __attribute__((packed)) gdt_ptr64;
 
 /* ------------------------------------------------------------------ */
 /* 64-bit TSS descriptor (16 bytes = two GDT slots)                  */
 /* ------------------------------------------------------------------ */
 typedef struct {
-    uint16_t limitLow;
-    uint16_t baseLow;
-    uint8_t  baseMiddle;
+    uint16_t limit_low;
+    uint16_t base_low;
+    uint8_t  base_middle;
     uint8_t  access;      /* 0x89 = present, ring-0, available 64-bit TSS */
     uint8_t  granularity;
-    uint8_t  baseHigh;
-    uint32_t baseUpper;
+    uint8_t  base_high;
+    uint32_t base_upper;
     uint32_t reserved;
-} __attribute__((packed)) TssDescriptor;
+} __attribute__((packed)) tss_descriptor;
 
 /* ------------------------------------------------------------------ */
 /* 64-bit TSS body (Intel SDM Vol.3 §7.7, Table 7-11)               */
@@ -63,42 +63,42 @@ typedef struct {
     uint64_t ist[7];      /* interrupt stack table (IST1..IST7)          */
     uint64_t reserved2;
     uint16_t reserved3;
-    uint16_t iomapBase;   /* offset to I/O permission bitmap             */
+    uint16_t iomap_base;   /* offset to I/O permission bitmap             */
 } __attribute__((packed)) Tss64;
 
 /* ------------------------------------------------------------------ */
 /* Static storage                                                     */
 /* ------------------------------------------------------------------ */
 /* 5 normal entries + 2 slots for the 64-bit TSS descriptor */
-static GdtEntry    gdt[5];
-static TssDescriptor tssDesc;
-static GdtPtr64    gdtp;
+static gdt_entry    gdt[5];
+static tss_descriptor tss_desc;
+static gdt_ptr64    gdtp;
 static Tss64       tss;
 
-static uint8_t kernelStack[4096] __attribute__((aligned(16)));
+static uint8_t kernel_stack[4096] __attribute__((aligned(16)));
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
-static void gdtSet(int i, uint32_t base, uint32_t limit,
+static void gdt_set(int i, uint32_t base, uint32_t limit,
                    uint8_t access, uint8_t gran) {
-    gdt[i].baseLow     = (uint16_t)(base & 0xFFFFu);
-    gdt[i].baseMiddle  = (uint8_t)((base >> 16) & 0xFFu);
-    gdt[i].baseHigh    = (uint8_t)((base >> 24) & 0xFFu);
-    gdt[i].limitLow    = (uint16_t)(limit & 0xFFFFu);
+    gdt[i].base_low     = (uint16_t)(base & 0xFFFFu);
+    gdt[i].base_middle  = (uint8_t)((base >> 16) & 0xFFu);
+    gdt[i].base_high    = (uint8_t)((base >> 24) & 0xFFu);
+    gdt[i].limit_low    = (uint16_t)(limit & 0xFFFFu);
     gdt[i].granularity = (uint8_t)(((limit >> 16) & 0x0Fu) | (gran & 0xF0u));
     gdt[i].access      = access;
 }
 
-static void tssDescSet(uint64_t base, uint32_t limit) {
-    tssDesc.limitLow   = (uint16_t)(limit & 0xFFFFu);
-    tssDesc.baseLow    = (uint16_t)(base & 0xFFFFu);
-    tssDesc.baseMiddle = (uint8_t)((base >> 16) & 0xFFu);
-    tssDesc.access     = 0x89u; /* present, DPL=0, available 64-bit TSS */
-    tssDesc.granularity = (uint8_t)(((limit >> 16) & 0x0Fu));
-    tssDesc.baseHigh   = (uint8_t)((base >> 24) & 0xFFu);
-    tssDesc.baseUpper  = (uint32_t)(base >> 32);
-    tssDesc.reserved   = 0;
+static void tss_desc_set(uint64_t base, uint32_t limit) {
+    tss_desc.limit_low   = (uint16_t)(limit & 0xFFFFu);
+    tss_desc.base_low    = (uint16_t)(base & 0xFFFFu);
+    tss_desc.base_middle = (uint8_t)((base >> 16) & 0xFFu);
+    tss_desc.access     = 0x89u; /* present, DPL=0, available 64-bit TSS */
+    tss_desc.granularity = (uint8_t)(((limit >> 16) & 0x0Fu));
+    tss_desc.base_high   = (uint8_t)((base >> 24) & 0xFFu);
+    tss_desc.base_upper  = (uint32_t)(base >> 32);
+    tss_desc.reserved   = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -108,48 +108,48 @@ static void tssDescSet(uint64_t base, uint32_t limit) {
  * Precondition:  called before any ring-3 code or interrupt.
  * Postcondition: GDT loaded, TSS loaded, segment registers updated.
  */
-void gdtInit(void) {
+void gdt_init(void) {
     /* Null descriptor */
-    gdtSet(0, 0, 0, 0x00u, 0x00u);
+    gdt_set(0, 0, 0, 0x00u, 0x00u);
     /* Kernel code: 64-bit, ring 0 (L=1 in granularity byte) */
-    gdtSet(1, 0, 0xFFFFFu, 0x9Au, 0xA0u); /* 0xA0 = G=1, L=1 (64-bit) */
+    gdt_set(1, 0, 0xFFFFFu, 0x9Au, 0xA0u); /* 0xA0 = G=1, L=1 (64-bit) */
     /* Kernel data: ring 0 */
-    gdtSet(2, 0, 0xFFFFFu, 0x92u, 0xC0u);
+    gdt_set(2, 0, 0xFFFFFu, 0x92u, 0xC0u);
     /* User code: 64-bit, ring 3 */
-    gdtSet(3, 0, 0xFFFFFu, 0xFAu, 0xA0u);
+    gdt_set(3, 0, 0xFFFFFu, 0xFAu, 0xA0u);
     /* User data: ring 3 */
-    gdtSet(4, 0, 0xFFFFFu, 0xF2u, 0xC0u);
+    gdt_set(4, 0, 0xFFFFFu, 0xF2u, 0xC0u);
 
     /* Build a flat GDT: [gdt entries][tss descriptor] */
-    gdtp.limit = (uint16_t)(sizeof(gdt) + sizeof(tssDesc) - 1u);
+    gdtp.limit = (uint16_t)(sizeof(gdt) + sizeof(tss_desc) - 1u);
     gdtp.base  = (uint64_t)(uintptr_t)gdt;
 
     /* TSS */
-    tss.rsp0      = (uint64_t)(uintptr_t)(kernelStack + sizeof(kernelStack));
-    tss.iomapBase = (uint16_t)sizeof(Tss64); /* no I/O bitmap */
+    tss.rsp0      = (uint64_t)(uintptr_t)(kernel_stack + sizeof(kernel_stack));
+    tss.iomap_base = (uint16_t)sizeof(Tss64); /* no I/O bitmap */
 
-    tssDescSet((uint64_t)(uintptr_t)&tss, (uint32_t)(sizeof(Tss64) - 1u));
+    tss_desc_set((uint64_t)(uintptr_t)&tss, (uint32_t)(sizeof(Tss64) - 1u));
 
     /* We need the TSS descriptor contiguous with gdt[] in memory.
      * Since C doesn't guarantee struct layout across separate arrays,
      * we embed the TSS descriptor address directly in the GDTR. */
-    gdtp.limit = (uint16_t)(sizeof(gdt) + sizeof(tssDesc) - 1u);
+    gdtp.limit = (uint16_t)(sizeof(gdt) + sizeof(tss_desc) - 1u);
     /* GDTR base points to gdt[0]; TSS descriptor follows immediately
      * only if they are adjacent.  Use a packed struct trick: */
 
     /* Simpler: build a single flat table in a local array */
-    static uint8_t gdtFlat[sizeof(gdt) + sizeof(tssDesc)]
+    static uint8_t gdt_flat[sizeof(gdt) + sizeof(tss_desc)]
         __attribute__((aligned(8)));
 
     /* Copy normal entries */
     for (uint32_t i = 0; i < sizeof(gdt); i++)
-        gdtFlat[i] = ((uint8_t *)gdt)[i];
+        gdt_flat[i] = ((uint8_t *)gdt)[i];
     /* Copy TSS descriptor */
-    for (uint32_t i = 0; i < sizeof(tssDesc); i++)
-        gdtFlat[sizeof(gdt) + i] = ((uint8_t *)&tssDesc)[i];
+    for (uint32_t i = 0; i < sizeof(tss_desc); i++)
+        gdt_flat[sizeof(gdt) + i] = ((uint8_t *)&tss_desc)[i];
 
-    gdtp.limit = (uint16_t)(sizeof(gdtFlat) - 1u);
-    gdtp.base  = (uint64_t)(uintptr_t)gdtFlat;
+    gdtp.limit = (uint16_t)(sizeof(gdt_flat) - 1u);
+    gdtp.base  = (uint64_t)(uintptr_t)gdt_flat;
 
     __asm__ volatile(
         "lgdt %0\n"
@@ -169,12 +169,12 @@ void gdtInit(void) {
         : : "m"(gdtp) : "rax", "memory"
     );
 
-    /* TSS selector = offset of tssDesc in gdtFlat = sizeof(gdt) = 0x28
+    /* TSS selector = offset of tss_desc in gdt_flat = sizeof(gdt) = 0x28
      * RPL = 0, TI = 0  →  selector = 0x28 */
     __asm__ volatile("ltr %%ax" : : "a"((uint16_t)0x28u));
 }
 
 /* Update kernel stack pointer in TSS (call on each context switch) */
-void tssSetKernelStack(uint64_t rsp0) {
+void tss_set_kernel_stack(uint64_t rsp0) {
     tss.rsp0 = rsp0;
 }

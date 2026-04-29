@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-typedef uint32_t ServiceId;
+typedef service_id;
 
 #define SERVICE_VGA_DISPLAY    1
 #define SERVICE_KEYBOARD_INPUT 2
@@ -17,15 +17,15 @@ typedef uint32_t ServiceId;
 #define SERVICE_MEMORY_MANAGER 5
 
 typedef struct {
-    ServiceId id;
-    uint32_t  providerPid;
+    service_id id;
+    uint32_t  provider_pid;
     char      name[32];
     uint32_t  capabilities;
 } Service;
 
-int       serviceRegister(ServiceId id, uint32_t providerPid, const char *name);
-int       serviceUnregister(ServiceId id);
-uint32_t  serviceLookup(ServiceId id);
-int       serviceCall(ServiceId id, void *request, void *response);
+int       service_register(service_id id, uint32_t provider_pid, const char *name);
+int       service_unregister(service_id id);
+uint32_t  service_lookup(service_id id);
+int       service_call(service_id id, void *request, void *response);
 
 #endif

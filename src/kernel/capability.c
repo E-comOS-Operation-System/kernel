@@ -5,19 +5,19 @@
 
 #include <kernel/capability.h>
 
-int capGrant(uint32_t targetPid, Capability cap) {
-    (void)targetPid;
+int cap_grant(uint32_t target_pid, Capability cap) {
+    (void)target_pid;
     (void)cap;
     /* Capability transfer between processes — requires IPC integration.
        Placeholder until object manager service is implemented. */
     return 0;
 }
 
-int capRevoke(Capability cap) {
+int cap_revoke(Capability cap) {
     (void)cap;
     return 0;
 }
 
-int capCheck(Capability cap, uint32_t requiredRights) {
-    return (cap.rights & requiredRights) == requiredRights ? 0 : -1;
+int cap_check(Capability cap, uint32_t required_rights) {
+    return (cap.rights & required_rights) == required_rights ? 0 : -1;
 }

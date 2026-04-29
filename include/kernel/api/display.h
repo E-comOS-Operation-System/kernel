@@ -1,5 +1,5 @@
 /*
- * E-comOS Microkernel - Display service API
+ * E-com_os Microkernel - Display service API
  * Interface for userspace display drivers
  */
 

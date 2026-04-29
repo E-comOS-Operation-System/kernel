@@ -26,25 +26,25 @@ typedef enum {
     THREAD_RUNNING,
     THREAD_BLOCKED,
     THREAD_TERMINATED
-} ThreadState;
+} thread_state;
 
-typedef struct Thread {
+typedef struct thread {
     uint32_t    id;
-    ThreadState state;
-    uint32_t    stackPtr;
+    thread_state state;
+    uint32_t    stack_ptr;
     uint32_t    priority;
-    uint8_t     blockReason;
-    int32_t     lastError;
+    uint8_t     block_reason;
+    int32_t     last_error;
     union {
-        uint8_t irqNum;
-    } blockData;
+        uint8_t irq_num;
+    } block_data;
 } Thread;
 
-int     schedCreateThread(void (*entryPoint)(void));
-void    schedYield(void);
-void    schedSchedule(void);
-Thread *schedGetThreadByPid(uint32_t pid);
-Thread *schedGetCurrentThread(void);
-uint32_t schedGetCurrentPid(void);
+int     sched_create_thread(void (*entry_point)(void));
+void    sched_yield(void);
+void    sched_schedule(void);
+Thread *sched_get_thread_by_pid(uint32_t pid);
+Thread *sched_get_current_thread(void);
+uint32_t sched_get_current_pid(void);
 
 #endif

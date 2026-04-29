@@ -1,5 +1,5 @@
 /*
- * E-comOS x86_64 - Paging structures
+ * E-com_os x86_64 - Paging structures
  */
 
 #ifndef ARCH_X86_64_INTERNAL_PAGING_H

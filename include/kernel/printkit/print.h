@@ -1,5 +1,5 @@
 /*
-    E-comOS Kernel - Print Utility
+    E-com_os Kernel - Print Utility
     Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
@@ -40,10 +40,10 @@
 
 #define VGA_COLOR(fg, bg) ((bg << 4) | fg)
 
-void clearScreen(uint8_t color);
-void printChar(char c, uint8_t color);
-void printStr(const char *str, uint8_t color);
-void printNum(uint32_t num, uint8_t color);
-void printHex(uint32_t num, uint8_t color);
+void clear_screen(uint8_t color);
+void print_char(char c, uint8_t color);
+void print_str(const char *str, uint8_t color);
+void print_num(uint32_t num, uint8_t color);
+void print_hex(uint32_t num, uint8_t color);
 
 #endif

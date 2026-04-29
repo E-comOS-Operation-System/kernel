@@ -7,49 +7,49 @@
 
 #define MAX_SERVICES 32
 
-static Service serviceTable[MAX_SERVICES];
-static int     serviceCount = 0;
+static Service service_table[MAX_SERVICES];
+static int     service_count = 0;
 
-int serviceRegister(ServiceId id, uint32_t providerPid, const char *name) {
-    if (serviceCount >= MAX_SERVICES)
+int service_register(service_id id, uint32_t provider_pid, const char *name) {
+    if (service_count >= MAX_SERVICES)
         return -1;
-    for (int i = 0; i < serviceCount; i++) {
-        if (serviceTable[i].id == id)
+    for (int i = 0; i < service_count; i++) {
+        if (service_table[i].id == id)
             return -2; /* already registered */
     }
-    serviceTable[serviceCount].id          = id;
-    serviceTable[serviceCount].providerPid = providerPid;
-    serviceTable[serviceCount].capabilities = 0;
+    service_table[service_count].id          = id;
+    service_table[service_count].provider_pid = provider_pid;
+    service_table[service_count].capabilities = 0;
     /* copy name */
     int j = 0;
     while (name[j] && j < 31) {
-        serviceTable[serviceCount].name[j] = name[j];
+        service_table[service_count].name[j] = name[j];
         j++;
     }
     serviceTable[serviceCount].name[j] = '\0';
-    serviceCount++;
+    service_count++;
     return 0;
 }
 
-int serviceUnregister(ServiceId id) {
-    for (int i = 0; i < serviceCount; i++) {
-        if (serviceTable[i].id == id) {
-            serviceTable[i] = serviceTable[--serviceCount];
+int service_unregister(service_id id) {
+    for (int i = 0; i < service_count; i++) {
+        if (service_table[i].id == id) {
+            service_table[i] = service_table[--service_count];
             return 0;
         }
     }
     return -1;
 }
 
-uint32_t serviceLookup(ServiceId id) {
-    for (int i = 0; i < serviceCount; i++) {
-        if (serviceTable[i].id == id)
-            return serviceTable[i].providerPid;
+uint32_t service_lookup(service_id id) {
+    for (int i = 0; i < service_count; i++) {
+        if (service_table[i].id == id)
+            return service_table[i].provider_pid;
     }
     return 0;
 }
 
-int serviceCall(ServiceId id, void *request, void *response) {
+int service_call(service_id id, void *request, void *response) {
     (void)id;
     (void)request;
     (void)response;

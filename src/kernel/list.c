@@ -5,13 +5,13 @@
 
 #include <kernel/internal/list.h>
 
-void listInit(ListHead *head) {
+void list_init(list_head *head) {
     head->first = 0;
     head->last  = 0;
     head->count = 0;
 }
 
-void listAdd(ListHead *head, ListNode *node) {
+void list_add(list_head *head, list_node *node) {
     node->next = 0;
     node->prev = head->last;
     if (head->last)
@@ -22,7 +22,7 @@ void listAdd(ListHead *head, ListNode *node) {
     head->count++;
 }
 
-void listRemove(ListHead *head, ListNode *node) {
+void list_remove(list_head *head, list_node *node) {
     if (node->prev)
         node->prev->next = node->next;
     else

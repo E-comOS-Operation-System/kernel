@@ -1,5 +1,5 @@
 /*
-    E-comOS Kernel - Interrupt Descriptor Table (64-bit)
+    E-com_os Kernel - Interrupt Descriptor Table (64-bit)
     Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
@@ -22,45 +22,45 @@
 #define IDT_ENTRIES 256
 
 typedef struct {
-    uint16_t offsetLow;
+    uint16_t offset_low;
     uint16_t selector;
     uint8_t  ist;
     uint8_t  flags;
-    uint16_t offsetMid;
-    uint32_t offsetHigh;
+    uint16_t offset_mid;
+    uint32_t offset_high;
     uint32_t reserved;
-} __attribute__((packed)) IdtEntry;
+} __attribute__((packed)) idt_entry;
 
 typedef struct {
     uint16_t limit;
     uint64_t base;
-} __attribute__((packed)) IdtPtr;
+} __attribute__((packed)) idt_ptr;
 
-static IdtEntry idt[IDT_ENTRIES];
-static IdtPtr   idtPointer;
+static idt_entry idt[IDT_ENTRIES];
+static idt_ptr   idt_pointer;
 
 /* Public stub kept for ABI compatibility — real work done by setGate64 */
-void idtSetGate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags) {
-    idt[num].offsetLow  = base & 0xFFFF;
+void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags) {
+    idt[num].offset_low  = base & 0xFFFF;
     idt[num].selector   = sel;
     idt[num].ist        = 0;
     idt[num].flags      = flags;
-    idt[num].offsetMid  = (base >> 16) & 0xFFFF;
-    idt[num].offsetHigh = (base >> 32) & 0xFFFFFFFF;
+    idt[num].offset_mid  = (base >> 16) & 0xFFFF;
+    idt[num].offset_high = (base >> 32) & 0xFFFFFFFF;
     idt[num].reserved   = 0;
 }
 
-#define GATE(n, fn)  idtSetGate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E)
-#define UGATE(n, fn) idtSetGate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0xEE)
+#define GATE(n, fn)  idt_set_gate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0x8E)
+#define UGATE(n, fn) idt_set_gate((n), (uint64_t)(uintptr_t)(fn), 0x08, 0xEE)
 
-void idtInit(void) {
+void idt_init(void) {
     for (int i = 0; i < IDT_ENTRIES; i++) {
-        idt[i].offsetLow  = 0;
+        idt[i].offset_low  = 0;
         idt[i].selector   = 0;
         idt[i].ist        = 0;
         idt[i].flags      = 0;
-        idt[i].offsetMid  = 0;
-        idt[i].offsetHigh = 0;
+        idt[i].offset_mid  = 0;
+        idt[i].offset_high = 0;
         idt[i].reserved   = 0;
     }
 
@@ -80,7 +80,7 @@ void idtInit(void) {
 
     UGATE(128, isr128);
 
-    idtPointer.limit = sizeof(idt) - 1;
-    idtPointer.base  = (uint64_t)(uintptr_t)&idt;
-    __asm__ volatile("lidt %0" : : "m"(idtPointer));
+    idt_pointer.limit = sizeof(idt) - 1;
+    idt_pointer.base  = (uint64_t)(uintptr_t)&idt;
+    __asm__ volatile("lidt %0" : : "m"(idt_pointer));
 }

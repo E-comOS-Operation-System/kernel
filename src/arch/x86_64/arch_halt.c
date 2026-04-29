@@ -1,5 +1,5 @@
 /**
- * E-comOS Kernel - A Microkernel for E-comOS
+ * E-com_os Kernel - A Microkernel for E-com_os
  * Copyright (C) 2025,2026  Saladin5101
  * 
  * This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@
 #ifndef ARCH_HALT_H
 #define ARCH_HALT_H
 #include <kernel/arch/universal.h>
-void archHalt(void) {
+void arch_halt(void) {
     // Disable interrupts and halt the CPU
     __asm__ volatile("hlt");
 }

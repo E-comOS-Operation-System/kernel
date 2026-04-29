@@ -3,7 +3,7 @@
     Copyright (C) 2025,2026  Saladin5101
 
     Precondition:  filled by the UEFI bootloader before jumping to _start.
-    Postcondition: read-only after kernelMain receives it.
+    Postcondition: read-only after kernel_main receives it.
 */
 
 #ifndef KERNEL_BOOT_H
@@ -29,17 +29,17 @@
 
 /*
  * EFI_MEMORY_DESCRIPTOR — layout matches UEFI spec.
- * descSize from GetMemoryMap() may be larger than sizeof this struct;
- * always use bootParams->memoryDescriptorSize to stride the array.
+ * desc_size from get_memory_map() may be larger than sizeof this struct;
+ * always use boot_params->memory_descriptor_size to stride the array.
  */
 typedef struct {
     uint32_t type;
     uint32_t _pad;           /* UEFI spec: 4-byte pad before physicalStart */
-    uint64_t physicalStart;
-    uint64_t virtualStart;
-    uint64_t numberOfPages;  /* 4 KB EFI pages */
+    uint64_t physical_start;
+    uint64_t virtual_start;
+    uint64_t number_of_pages;  /* 4 KB EFI pages */
     uint64_t attribute;
-} __attribute__((packed)) EfiMemoryDescriptor;
+} __attribute__((packed)) efi_memory_descriptor;
 
 /* Passed from bootloader to kernelMain via rdi (System V AMD64 ABI) */
 typedef struct {
@@ -47,36 +47,36 @@ typedef struct {
     u32 version;                         // Structure version
     u32 size;                            // Size of this structure
 
-    u64 memoryMap;
-    u64 memoryMapSize;
-    u64 memoryMapKey;
-    u64 memoryMapDescriptorSize;
-    u64 memoryMapDescriptorVersion;
+    u64 memory_map;
+    u64 memory_map_size;
+    u64 memory_map_key;
+    u64 memory_map_descriptor_size;
+    u64 memory_map_descriptor_version;
 
-    u64 frameBuffer;                  // Address of framebuffer
-    u32 frameBufferWidth;
-    u32 frameBufferHeight;
-    u32 frameBufferPitch;
-    u32 frameBufferBpp;
+    u64 frame_buffer;                  // Address of framebuffer
+    u32 frame_buffer_width;
+    u32 frame_buffer_height;
+    u32 frame_buffer_pitch;
+    u32 frame_buffer_bpp;
 
-    void* acpiRsdt;
-    void* smbiosTable;
-    u32 daemonProcessID;
-    u64 sharedHeaderPhys;
-    u64 kernelBase;
-    u64 kernelSize;
-    u64 kernelEntry;
+    void* acpi_rsdt;
+    void* smbios_table;
+    u32 daemon_process_id;
+    u64 shared_header_phys;
+    u64 kernel_base;
+    u64 kernel_size;
+    u64 kernel_entry;
 
     char commandLine[256];             // Optional command line for kernel
 
-    void* runtimeService;
-    u64 rtServicePhys;
-    u64 sharedBuffer;
-    uint64_t sharedBufferSize;
-}BootParams;
+    void* runtime_service;
+    u64 rt_service_phys;
+    u64 shared_buffer;
+    uint64_t shared_buffer_size;
+}boot_params;
 /*
  * Linker-provided symbols marking the kernel image boundaries.
- * Used by mmInit to precisely reserve kernel pages.
+ * Used by mm_init to precisely reserve kernel pages.
  * Declared as arrays so taking their address gives the symbol value
  * without an extra indirection.
  */

@@ -20,62 +20,62 @@
 
 #define VGA_MEMORY ((volatile uint16_t *)0xB8000)
 
-static int cursorX = 0;
-static int cursorY = 0;
+static int cursor_x = 0;
+static int cursor_y = 0;
 
-void clearScreen(uint8_t color) {
+void clear_screen(uint8_t color) {
     (void)color;
     for (int i = 0; i < 80 * 25; i++)
         VGA_MEMORY[i] = 0x0720;
-    cursorX = cursorY = 0;
+    cursor_x = cursor_y = 0;
 }
 
-void printChar(char c, uint8_t color) {
+void print_char(char c, uint8_t color) {
     if (c == '\n') {
-        cursorX = 0;
-        cursorY++;
+        cursor_x = 0;
+        cursor_y++;
     } else if (c == '\r') {
-        cursorX = 0;
+        cursor_x = 0;
     } else {
-        VGA_MEMORY[cursorY * 80 + cursorX] = ((uint16_t)color << 8) | (uint8_t)c;
-        cursorX++;
+        VGA_MEMORY[cursor_y * 80 + cursor_x] = ((uint16_t)color << 8) | (uint8_t)c;
+        cursor_x++;
     }
-    if (cursorX >= 80) {
-        cursorX = 0;
-        cursorY++;
+    if (cursor_x >= 80) {
+        cursor_x = 0;
+        cursor_y++;
     }
-    if (cursorY >= 25) {
+    if (cursor_y >= 25) {
         for (int i = 0; i < 80 * 24; i++)
             VGA_MEMORY[i] = VGA_MEMORY[i + 80];
         for (int i = 80 * 24; i < 80 * 25; i++)
             VGA_MEMORY[i] = 0x0F20;
-        cursorY = 24;
+        cursor_y = 24;
     }
 }
 
-void printStr(const char *str, uint8_t color) {
+void print_str(const char *str, uint8_t color) {
     for (int i = 0; str[i] != '\0'; i++)
-        printChar(str[i], color);
+        print_char(str[i], color);
 }
 
-void printNum(uint32_t num, uint8_t color) {
+void print_num(uint32_t num, uint8_t color) {
     char  buf[12];
     char *ptr = buf + 11;
     *ptr = '\0';
     if (num == 0) {
-        printChar('0', color);
+        print_char('0', color);
         return;
     }
     while (num > 0) {
         *--ptr = '0' + (num % 10);
         num /= 10;
     }
-    printStr(ptr, color);
+    print_str(ptr, color);
 }
 
-void printHex(uint32_t num, uint8_t color) {
+void print_hex(uint32_t num, uint8_t color) {
     const char *digits = "0123456789ABCDEF";
-    printStr("0x", color);
+    print_str("0x", color);
     for (int i = 7; i >= 0; i--)
-        printChar(digits[(num >> (i * 4)) & 0xF], color);
+        print_char(digits[(num >> (i * 4)) & 0xF], color);
 }

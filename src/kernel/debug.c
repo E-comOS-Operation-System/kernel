@@ -20,7 +20,7 @@ static inline uint8_t inb(uint16_t port) {
     return ret;
 }
 
-void earlyDebugInit(void) {
+void early_debug_init(void) {
     outb(COM1 + 1, 0x00); /* disable interrupts */
     outb(COM1 + 3, 0x80); /* enable DLAB */
     outb(COM1 + 0, 0x03); /* 38400 baud low */
@@ -30,7 +30,7 @@ void earlyDebugInit(void) {
     outb(COM1 + 4, 0x0B); /* IRQs enabled, RTS/DSR set */
 }
 
-void earlyDebugPuts(const char *str) {
+void early_debug_puts(const char *str) {
     for (; *str; str++) {
         while (!(inb(COM1 + 5) & 0x20))
             ;
@@ -38,29 +38,29 @@ void earlyDebugPuts(const char *str) {
     }
 }
 
-void kernelPanic(const char *msg) {
+void kernel_panic(const char *msg) {
     __asm__ volatile("cli");
-    printStr("KERNEL PANIC: ", 0x4F);
-    printStr(msg, 0x4F);
-    printStr("\n", 0x4F);
-    earlyDebugPuts("KERNEL PANIC: ");
-    earlyDebugPuts(msg);
-    earlyDebugPuts("\n");
+    print_str("KERNEL PANIC: ", 0x4F);
+    print_str(msg, 0x4F);
+    print_str("\n", 0x4F);
+    early_debug_puts("KERNEL PANIC: ");
+    early_debug_puts(msg);
+    early_debug_puts("\n");
     while (1)
         __asm__ volatile("hlt");
 }
 
-void kernelLog(const char *msg) {
-    printStr("[LOG] ", 0x07);
-    printStr(msg, 0x07);
-    earlyDebugPuts("[LOG] ");
-    earlyDebugPuts(msg);
+void kernel_log(const char *msg) {
+    print_str("[LOG] ", 0x07);
+    print_str(msg, 0x07);
+    early_debug_puts("[LOG] ");
+    early_debug_puts(msg);
 }
 
-int earlyKernelInit(uint32_t multibootMagic, uint32_t multibootInfo) {
-    (void)multibootMagic;
-    (void)multibootInfo;
-    earlyDebugInit();
-    earlyDebugPuts("E-comOS early init OK\n");
+int early_kernel_init(uint32_t multiboot_magic, uint32_t multiboot_info) {
+    (void)multiboot_magic;
+    (void)multiboot_info;
+    early_debug_init();
+    early_debug_puts("E-comOS early init OK\n");
     return 0;
 }

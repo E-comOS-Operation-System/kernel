@@ -1,5 +1,5 @@
 /*
- * E-comOS x86_64 - Global Descriptor Table
+ * E-com_os x86_64 - Global Descriptor Table
  */
 
 #ifndef ARCH_X86_64_INTERNAL_GDT_H

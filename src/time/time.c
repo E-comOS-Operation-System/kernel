@@ -18,12 +18,12 @@
 
 #include <kernel/time.h>
 
-static volatile uint64_t systemTicks = 0;
+static volatile uint64_t system_ticks = 0;
 
-uint64_t timeGetCurrentMs(void) {
-    return systemTicks;
+uint64_t time_get_current_ms(void) {
+    return system_ticks;
 }
 
-void timeTick(void) {
-    systemTicks++;
+void time_tick(void) {
+    system_ticks++;
 }

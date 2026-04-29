@@ -1,5 +1,5 @@
 /*
- * E-comOS x86_64 - Context switching
+ * E-com_os x86_64 - Context switching
  */
 
 #ifndef ARCH_X86_64_INTERNAL_CONTEXT_H

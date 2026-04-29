@@ -6,9 +6,9 @@
 #ifndef KERNEL_DEBUG_H
 #define KERNEL_DEBUG_H
 
-void earlyDebugInit(void);
-void earlyDebugPuts(const char *str);
-void kernelPanic(const char *msg);
-void kernelLog(const char *msg);
+void early_debug_init(void);
+void early_debug_puts(const char *str);
+void kernel_panic(const char *msg);
+void kernel_log(const char *msg);
 
 #endif

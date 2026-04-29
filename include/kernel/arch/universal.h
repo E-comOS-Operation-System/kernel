@@ -1,5 +1,5 @@
 /*
- * E-comOS Microkernel - universal architecture definitions
+ * E-com_os Microkernel - universal architecture definitions
  */
 
 #ifndef KERNEL_ARCH_UNIVERSAL_H

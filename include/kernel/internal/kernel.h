@@ -1,5 +1,5 @@
 /*
- * E-comOS Microkernel - Internal kernel structures
+ * E-com_os Microkernel - Internal kernel structures
  */
 
 #ifndef KERNEL_INTERNAL_KERNEL_H

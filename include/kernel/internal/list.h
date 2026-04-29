@@ -1,5 +1,5 @@
 /*
-    E-comOS Kernel - Doubly-linked List
+    E-com_os Kernel - Doubly-linked List
     Copyright (C) 2025,2026  Saladin5101
 */
 
@@ -8,19 +8,19 @@
 
 #include <stddef.h>
 
-typedef struct ListNode {
-    struct ListNode *next;
-    struct ListNode *prev;
-} ListNode;
+typedef struct list_node {
+    struct list_node *next;
+    struct list_node *prev;
+} list_node;
 
 typedef struct {
-    ListNode *first;
-    ListNode *last;
+    list_node *first;
+    list_node *last;
     size_t    count;
-} ListHead;
+} list_head;
 
-void listInit(ListHead *head);
-void listAdd(ListHead *head, ListNode *node);
-void listRemove(ListHead *head, ListNode *node);
+void list_init(list_head *head);
+void list_add(list_head *head, list_node *node);
+void list_remove(list_head *head, list_node *node);
 
 #endif

@@ -8,32 +8,32 @@
 
 #define MAX_ADDRESS_SPACES 16
 
-static uint8_t asUsed[MAX_ADDRESS_SPACES] = {0};
+static uint8_t as_used[MAX_ADDRESS_SPACES] = {0};
 
-AddressSpace asCreate(void) {
+address_space as_create(void) {
     for (int i = 1; i < MAX_ADDRESS_SPACES; i++) {
-        if (!asUsed[i]) {
-            asUsed[i] = 1;
-            return (AddressSpace)i;
+        if (!as_used[i]) {
+            as_used[i] = 1;
+            return (address_space)i;
         }
     }
     return 0;
 }
 
-int asDestroy(AddressSpace as) {
+int as_destroy(address_space as) {
     if (as == 0 || as >= MAX_ADDRESS_SPACES)
         return -1;
-    asUsed[as] = 0;
+    as_used[as] = 0;
     return 0;
 }
 
-int asMap(AddressSpace as, uint32_t vaddr, uint32_t paddr,
+int as_map(address_space as, uint32_t vaddr, uint32_t paddr,
           uint32_t size, uint32_t flags) {
-    if (as == 0 || as >= MAX_ADDRESS_SPACES || !asUsed[as])
+    if (as == 0 || as >= MAX_ADDRESS_SPACES || !as_used[as])
         return -1;
     uint32_t pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
     for (uint32_t i = 0; i < pages; i++) {
-        int rc = mmMapPage(vaddr + i * PAGE_SIZE,
+        int rc = mm_map_page(vaddr + i * PAGE_SIZE,
                            paddr + i * PAGE_SIZE, flags);
         if (rc != 0)
             return rc;
@@ -41,7 +41,7 @@ int asMap(AddressSpace as, uint32_t vaddr, uint32_t paddr,
     return 0;
 }
 
-int asUnmap(AddressSpace as, uint32_t vaddr, uint32_t size) {
+int as_unmap(address_space as, uint32_t vaddr, uint32_t size) {
     (void)as;
     (void)vaddr;
     (void)size;

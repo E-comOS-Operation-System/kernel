@@ -1,5 +1,5 @@
 /*
-    E-comOS Kernel - ISR C handler
+    E-com_os Kernel - ISR C handler
     Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,7 @@
 #include <stdint.h>
 #include <kernel/printkit/print.h>
 
-static const char *exceptionMessages[] = {
+static const char *exception_messages[] = {
     "Division By Zero",
     "Debug",
     "Non Maskable Interrupt",
@@ -46,14 +46,14 @@ static const char *exceptionMessages[] = {
     "Reserved", "Reserved", "Reserved"
 };
 
-void isrHandler(uint64_t intNo, uint64_t errCode) {
-    (void)errCode;
-    if (intNo < 32) {
-        printStr("Exception: ", 0x4F);
-        printStr(exceptionMessages[intNo], 0x4F);
-        printStr("\n", 0x4F);
-        if (intNo == 8 || intNo == 13 || intNo == 14) {
-            printStr("System halted\n", 0x4F);
+void isr_handler(uint64_t int_no, uint64_t err_code) {
+    (void)err_code;
+    if (int_no < 32) {
+        print_str("Exception: ", 0x4F);
+        print_str(exception_messages[int_no], 0x4F);
+        print_str("\n", 0x4F);
+        if (int_no == 8 || int_no == 13 || int_no == 14) {
+            print_str("System halted\n", 0x4F);
             while (1)
                 __asm__ volatile("cli; hlt");
         }

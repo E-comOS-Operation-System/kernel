@@ -9,7 +9,7 @@ static void test_example(void **state) {
 }
 
 int main(void) {
-    const struct CMUnitTest tests[] = {
+    const struct cm_unit_test tests[] = {
         cmocka_unit_test(test_example),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

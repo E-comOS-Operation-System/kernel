@@ -8,6 +8,6 @@
 
 #include <stdint.h>
 
-int earlyKernelInit(uint32_t multibootMagic, uint32_t multibootInfo);
+int early_kernel_init(uint32_t multiboot_magic, uint32_t multiboot_info);
 
 #endif

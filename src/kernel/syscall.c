@@ -28,156 +28,156 @@
 
 typedef struct {
     uint32_t pid;
-    uint8_t  irqNumber;
+    uint8_t  irq_number;
     uint8_t  flags;
-    uint32_t timeoutMs;
-    uint64_t startTime;
-    uint8_t  isActive;
-} IrqWaiter;
+    uint32_t timeout_ms;
+    uint64_t start_time;
+    uint8_t  is_active;
+} irq_waiter;
 
-static IrqWaiter     irqWaiters[MAX_IRQ_WAITERS];
-static uint32_t      numWaiters = 0;
-static volatile uint32_t irqOccurred[MAX_IRQS];
-static volatile uint32_t irqOccurrenceCount[MAX_IRQS];
+static irq_waiter     irq_waiters[MAX_IRQ_WAITERS];
+static uint32_t      num_waiters = 0;
+static volatile uint32_t irq_occurred[MAX_IRQS];
+static volatile uint32_t irq_occurrence_count[MAX_IRQS];
 
-void syscallIrqInit(void) {
+void syscall_irq_init(void) {
     for (int i = 0; i < MAX_IRQ_WAITERS; i++) {
-        irqWaiters[i].pid      = 0;
-        irqWaiters[i].isActive = 0;
+        irq_waiters[i].pid      = 0;
+        irq_waiters[i].is_active = 0;
     }
     for (int i = 0; i < MAX_IRQS; i++) {
-        irqOccurred[i]         = 0;
-        irqOccurrenceCount[i]  = 0;
+        irq_occurred[i]         = 0;
+        irq_occurrence_count[i]  = 0;
     }
-    numWaiters = 0;
+    num_waiters = 0;
 }
 
-static int findIrqWaiter(uint32_t pid, uint8_t irqNum) {
-    for (uint32_t i = 0; i < numWaiters; i++) {
-        if (irqWaiters[i].isActive &&
-            irqWaiters[i].pid == pid &&
-            irqWaiters[i].irqNumber == irqNum)
+static int find_irq_waiter(uint32_t pid, uint8_t irq_num) {
+    for (uint32_t i = 0; i < num_waiters; i++) {
+        if (irq_waiters[i].is_active &&
+            irq_waiters[i].pid == pid &&
+            irq_waiters[i].irq_number == irq_num)
             return (int)i;
     }
     return -1;
 }
 
-static int addIrqWaiter(uint32_t pid, uint8_t irqNum,
-                        uint8_t flags, uint32_t timeoutMs) {
-    if (findIrqWaiter(pid, irqNum) >= 0)
+static int add_irq_waiter(uint32_t pid, uint8_t irq_num,
+                        uint8_t flags, uint32_t timeout_ms) {
+    if (find_irq_waiter(pid, irq_num) >= 0)
         return -2;
     for (uint32_t i = 0; i < MAX_IRQ_WAITERS; i++) {
-        if (!irqWaiters[i].isActive) {
-            irqWaiters[i].pid       = pid;
-            irqWaiters[i].irqNumber = irqNum;
-            irqWaiters[i].flags     = flags;
-            irqWaiters[i].timeoutMs = timeoutMs;
-            irqWaiters[i].startTime = timeGetCurrentMs();
-            irqWaiters[i].isActive  = 1;
-            if (i >= numWaiters)
-                numWaiters = i + 1;
+        if (!irq_waiters[i].is_active) {
+            irq_waiters[i].pid       = pid;
+            irq_waiters[i].irq_number = irq_num;
+            irq_waiters[i].flags     = flags;
+            irq_waiters[i].timeout_ms = timeout_ms;
+            irq_waiters[i].start_time = time_get_current_ms();
+            irq_waiters[i].is_active  = 1;
+            if (i >= num_waiters)
+                num_waiters = i + 1;
             return 0;
         }
     }
     return -1;
 }
 
-static void removeIrqWaiter(uint32_t pid, uint8_t irqNum) {
-    int idx = findIrqWaiter(pid, irqNum);
+static void remove_irq_waiter(uint32_t pid, uint8_t irq_num) {
+    int idx = find_irq_waiter(pid, irq_num);
     if (idx >= 0)
-        irqWaiters[idx].isActive = 0;
+        irq_waiters[idx].is_active = 0;
 }
 
-void syscallIrqNotify(uint8_t irqNum) {
-    if (irqNum >= MAX_IRQS)
+void syscall_irq_notify(uint8_t irq_num) {
+    if (irq_num >= MAX_IRQS)
         return;
-    irqOccurred[irqNum] = 1;
-    irqOccurrenceCount[irqNum]++;
-    for (uint32_t i = 0; i < numWaiters; i++) {
-        if (!irqWaiters[i].isActive) continue;
-        if (irqWaiters[i].irqNumber != irqNum) continue;
-        irqWaiters[i].isActive = 0;
-        Thread *t = schedGetThreadByPid(irqWaiters[i].pid);
+    irq_occurred[irq_num] = 1;
+    irq_occurrence_count[irq_num]++;
+    for (uint32_t i = 0; i < num_waiters; i++) {
+        if (!irq_waiters[i].is_active) continue;
+        if (irq_waiters[i].irq_number != irq_num) continue;
+        irq_waiters[i].is_active = 0;
+        Thread *t = sched_get_thread_by_pid(irq_waiters[i].pid);
         if (t && t->state == THREAD_BLOCKED) {
             t->state       = THREAD_READY;
-            t->blockReason = BLOCK_REASON_NONE;
+            t->block_reason = BLOCK_REASON_NONE;
         }
     }
 }
 
-void syscallIrqCheckTimeouts(void) {
-    uint64_t now = timeGetCurrentMs();
-    for (uint32_t i = 0; i < numWaiters; i++) {
-        if (!irqWaiters[i].isActive) continue;
-        if (irqWaiters[i].timeoutMs == 0) continue;
-        uint64_t elapsed = now - irqWaiters[i].startTime;
-        if (elapsed < irqWaiters[i].timeoutMs) continue;
-        uint32_t pid = irqWaiters[i].pid;
-        irqWaiters[i].isActive = 0;
-        Thread *t = schedGetThreadByPid(pid);
+void syscall_irq_check_timeouts(void) {
+    uint64_t now = time_get_current_ms();
+    for (uint32_t i = 0; i < num_waiters; i++) {
+        if (!irq_waiters[i].is_active) continue;
+        if (irq_waiters[i].timeout_ms == 0) continue;
+        uint64_t elapsed = now - irq_waiters[i].start_time;
+        if (elapsed < irq_waiters[i].timeout_ms) continue;
+        uint32_t pid = irq_waiters[i].pid;
+        irq_waiters[i].is_active = 0;
+        Thread *t = sched_get_thread_by_pid(pid);
         if (t && t->state == THREAD_BLOCKED) {
             t->state       = THREAD_READY;
-            t->blockReason = BLOCK_REASON_NONE;
-            t->lastError   = ERR_TIMEOUT;
+            t->block_reason = BLOCK_REASON_NONE;
+            t->last_error   = ERR_TIMEOUT;
         }
     }
 }
 
-static long irqWaitSyscall(uint8_t irqNum, uint8_t flags, uint32_t timeoutMs) {
-    if (irqNum >= MAX_IRQS) return -1;
-    uint32_t pid = schedGetCurrentPid();
+static long irq_wait_syscall(uint8_t irq_num, uint8_t flags, uint32_t timeout_ms) {
+    if (irq_num >= MAX_IRQS) return -1;
+    uint32_t pid = sched_get_current_pid();
     if (pid == 0) return -4;
-    if (irqOccurred[irqNum]) {
+    if (irq_occurred[irq_num]) {
         if (flags & IRQ_WAIT_CLEAR)
-            irqOccurred[irqNum] = 0;
+            irq_occurred[irq_num] = 0;
         return 0;
     }
     if (flags & IRQ_WAIT_NOWAIT) return -2;
-    int rc = addIrqWaiter(pid, irqNum, flags, timeoutMs);
+    int rc = add_irq_waiter(pid, irq_num, flags, timeout_ms);
     if (rc < 0) return rc;
-    Thread *t = schedGetCurrentThread();
+    Thread *t = sched_get_current_thread();
     if (!t) {
-        removeIrqWaiter(pid, irqNum);
+        remove_irq_waiter(pid, irq_num);
         return -4;
     }
     t->state                = THREAD_BLOCKED;
-    t->blockReason          = BLOCK_REASON_IRQ_WAIT;
-    t->blockData.irqNum     = irqNum;
-    while (!irqOccurred[irqNum]) {
-        syscallIrqCheckTimeouts();
-        if (findIrqWaiter(pid, irqNum) < 0)
+    t->block_reason          = BLOCK_REASON_IRQ_WAIT;
+    t->block_data.irq_num     = irq_num;
+    while (!irq_occurred[irq_num]) {
+        syscall_irq_check_timeouts();
+        if (find_irq_waiter(pid, irq_num) < 0)
             break;
-        schedYield();
+        sched_yield();
     }
-    if (irqOccurred[irqNum] && (flags & IRQ_WAIT_CLEAR))
-        irqOccurred[irqNum] = 0;
-    removeIrqWaiter(pid, irqNum);
-    if (t->lastError == ERR_TIMEOUT) {
-        t->lastError = 0;
+    if (irq_occurred[irq_num] && (flags & IRQ_WAIT_CLEAR))
+        irq_occurred[irq_num] = 0;
+    remove_irq_waiter(pid, irq_num);
+    if (t->last_error == ERR_TIMEOUT) {
+        t->last_error = 0;
         return -3;
     }
     return 0;
 }
 
-long syscallHandler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
+long syscall_handler(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
     switch (num) {
     case SYS_IPC_SEND:
-        return ipcSend((ThreadId)arg1, (IpcMessage *)(uintptr_t)arg2);
+        return ipc_send((thread_id)arg1, (ipc_message_t *)(uintptr_t)arg2);
     case SYS_IPC_RECEIVE:
-        return ipcReceive((IpcMessage *)(uintptr_t)arg1);
+        return ipc_receive((ipc_message_t *)(uintptr_t)arg1);
     case SYS_THREAD_YIELD:
-        schedYield();
+        sched_yield();
         return 0;
     case SYS_ADDRESS_MAP:
-        return mmMapPage(arg1, arg2, arg3);
+        return mm_map_page(arg1, arg2, arg3);
     case SYS_IRQ_WAIT:
-        return irqWaitSyscall((uint8_t)arg1, (uint8_t)arg2, arg3);
+        return irq_wait_syscall((uint8_t)arg1, (uint8_t)arg2, arg3);
     case SYS_IRQ_GET_COUNT:
         if (arg1 >= MAX_IRQS) return -1;
-        return (long)irqOccurrenceCount[arg1];
+        return (long)irq_occurrence_count[arg1];
     case SYS_IRQ_RESET_COUNT:
         if (arg1 >= MAX_IRQS) return -1;
-        { uint32_t old = irqOccurrenceCount[arg1]; irqOccurrenceCount[arg1] = 0; return old; }
+        { uint32_t old = irq_occurrence_count[arg1]; irq_occurrence_count[arg1] = 0; return old; }
     default:
         return -1;
     }

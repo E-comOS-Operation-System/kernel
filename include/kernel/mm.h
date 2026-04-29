@@ -2,8 +2,8 @@
     E-comOS Kernel - Memory Manager Interface
     Copyright (C) 2025,2026  Saladin5101
 
-    Invariant: pageBitmap bit i == 1  ↔  physical page i is allocated.
-    Invariant: nextFreePage ≤ MAX_PAGES at all times.
+    Invariant: page_bitmap bit i == 1  ↔  physical page i is allocated.
+    Invariant: next_free_page ≤ MAX_PAGES at all times.
 */
 
 #ifndef KERNEL_MM_H
@@ -39,47 +39,47 @@ typedef enum {
     MEMORY_ERROR_INVALID_PARAMS = -1,
     MEMORY_ERROR_NOMEM          = -2,
     MEMORY_ERROR_BUSY           = -3
-} MemoryStatus;
+} memory_status;
 
 /*
- * mmInit — initialise the physical page allocator.
+ * mm_init — initialise the physical page allocator.
  *
- * Precondition:  called exactly once, before any mmAllocPage call.
+ * Precondition:  called exactly once, before any mm_alloc_page call.
  * Precondition:  interrupts are disabled.
- * Postcondition: pageBitmap reflects all usable physical pages;
+ * Postcondition: page_bitmap reflects all usable physical pages;
  *                kernel image pages are marked allocated.
- * Postcondition: nextFreePage points to the first free page index,
+ * Postcondition: next_free_page points to the first free page index,
  *                or equals MAX_PAGES if no free pages exist.
  *
- * bootParams may be NULL; in that case a conservative fallback is used.
+ * boot_params may be NULL; in that case a conservative fallback is used.
  */
-MemoryStatus mmInit(BootParams *bootParams);
+memory_status mm_init(boot_params *boot_params);
 
 /*
- * mmAllocPage — allocate one physical page (4 KB).
+ * mm_alloc_page — allocate one physical page (4 KB).
  * Returns physical address, or NULL if OOM.
  * NOT interrupt-safe; caller must disable interrupts if needed.
  */
-void *mmAllocPage(void);
+void *mm_alloc_page(void);
 
 /* mmFreePage — release a page previously returned by mmAllocPage. */
-void  mmFreePage(void *page);
+void  mm_free_page(void *page);
 
 /*
- * mmMapPage — insert a vaddr→paddr mapping into the current page tables.
+ * mm_map_page — insert a vaddr→paddr mapping into the current page tables.
  * flags: combination of PTE_* constants.
  */
-int   mmMapPage(uint32_t vaddr, uint32_t paddr, uint32_t flags);
-int   mmUnmapPage(uint32_t vaddr);
+int   mm_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags);
+int   mm_unmap_page(uint32_t vaddr);
 
 /*
- * mmEnablePaging — load CR3 and set CR0.PG.
- * Precondition: page tables built by initPageTables() (called from mmInit).
+ * mm_enable_paging — load CR3 and set CR0.PG.
+ * Precondition: page tables built by init_page_tables() (called from mm_init).
  * Panics if page tables are not ready.
  */
-void  mmEnablePaging(void);
+void  mm_enable_paging(void);
 
-extern uint8_t  pageBitmap[MAX_PAGES / 8];
-extern uint32_t nextFreePage;
+extern uint8_t  page_bitmap[MAX_PAGES / 8];
+extern uint32_t next_free_page;
 
 #endif

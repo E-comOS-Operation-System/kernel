@@ -21,13 +21,13 @@
 typedef struct {
     uint32_t type;
     uint32_t rights;
-    uint32_t objectId;
-    uint32_t baseAddr;
+    uint32_t object_id;
+    uint32_t base_addr;
     uint32_t size;
 } Capability;
 
-int capGrant(uint32_t targetPid, Capability cap);
-int capRevoke(Capability cap);
-int capCheck(Capability cap, uint32_t requiredRights);
+int cap_grant(uint32_t target_pid, Capability cap);
+int cap_revoke(Capability cap);
+int cap_check(Capability cap, uint32_t required_rights);
 
 #endif

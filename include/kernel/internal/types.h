@@ -1,5 +1,5 @@
 /*
- * E-comOS Microkernel - Internal type definitions
+ * E-com_os Microkernel - Internal type definitions
  */
 
 #ifndef KERNEL_INTERNAL_TYPES_H

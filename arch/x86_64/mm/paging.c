@@ -1,5 +1,5 @@
 /*
- * E-comOS - Paging Management
+ * E-com_os - Paging Management
  */
 
 #include <stdint.h>

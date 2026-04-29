@@ -1,5 +1,5 @@
 /*
-    E-comOS Kernel - Interrupt interface
+    E-com_os Kernel - Interrupt interface
     Copyright (C) 2025,2026  Saladin5101
 
     This program is free software: you can redistribute it and/or modify
@@ -21,16 +21,16 @@
 
 #include <stdint.h>
 
-void idtInit(void);
-void idtSetGate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
-void irqRemap(void);
-void irqInitTimer(void);
-void irqInstallHandler(uint8_t irq, void (*handler)(void));
-void irqUninstallHandler(uint8_t irq);
-void irqHandlerAsmShim(uint64_t vec);
-void isrHandler(uint64_t intNo, uint64_t errCode);
-void gdtInit(void);
-void tssSetKernelStack(uint64_t rsp0);
+void idt_init(void);
+void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
+void irq_remap(void);
+void irq_init_timer(void);
+void irq_install_handler(uint8_t irq, void (*handler)(void));
+void irq_uninstall_handler(uint8_t irq);
+void irq_handler_asm_shim(uint64_t vec);
+void isr_handler(uint64_t int_no, uint64_t err_code);
+void gdt_init(void);
+void tss_set_kernel_stack(uint64_t rsp0);
 
 extern void isr0(void);  extern void isr1(void);  extern void isr2(void);
 extern void isr3(void);  extern void isr4(void);  extern void isr5(void);

@@ -20,7 +20,7 @@
 #define KERNEL_IPC_H
 
 #include <stdint.h>
-
+#include <stddef.h>
 #define IPC_MAX_DATA_SIZE   4096
 
 #define ECLIB_OK                    0
@@ -29,9 +29,9 @@
 #define ECLIB_IPC_PERM_DENIED      -3
 #define ECLIB_IPC_BUFFER_OVERFLOW  -4
 
-typedef uint32_t ThreadId;
+typedef uint32_t thread_id;
 
-typedef struct IpcMessage {
+typedef struct ipc_message {
     uint32_t type;
     uint32_t source;
     uint32_t target;
@@ -39,15 +39,15 @@ typedef struct IpcMessage {
     uint32_t size;
     uint32_t sequence;
     uint8_t  data[IPC_MAX_DATA_SIZE];
-} IpcMessage;
+} ipc_message_t;
 
 /* Low-level kernel IPC */
-int ipcSend(ThreadId target, IpcMessage *msg);
-int ipcReceive(IpcMessage *msg);
+int ipc_send(thread_id target, ipc_message_t *msg);
+int ipc_receive(ipc_message_t *msg);
 
 /* Higher-level helpers */
-int ipcReceiveMsg(IpcMessage *msg, int timeoutMs);
-int ipcSendMsg(uint32_t type, uint32_t flags, uint32_t receiverPid,
-               uint32_t dataLen, const void *data);
+int ipc_receive_msg(ipc_message_t *msg, int timeout_ms);
+int ipc_send_msg(int msg_type, int flags, thread_id receiver_pid, 
+                 size_t data_len, void* data);
 
 #endif
