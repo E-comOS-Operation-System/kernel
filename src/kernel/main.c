@@ -16,10 +16,8 @@
 #include <kernel/syscall.h>
 #include <kernel/printkit/print.h>
 #include <kernel/debug.h>
-#include <user_space/proc.h>
 
 extern void gdt_init(void);
-
 #ifndef ECLIB_OK
 #define ECLIB_OK 0
 #endif
@@ -59,7 +57,7 @@ void kernel_main(void* boot_info) {
 	kernel_panic("Failed to load init-service for system init , kernel abort");
     }
 
-    print_str("init-service is backed from user mode",0x0C);
+    print_str("init-service is backed from user mode , abort");
     
     print_str("Kernel ready.\n", 0x2F);
 
@@ -77,7 +75,7 @@ void kernel_main(void* boot_info) {
 
         ipc_message_t msg = {0};   /* zero-initialise to avoid garbage (F-11) */
         if (ipc_receive_msg(&msg, 0) == ECLIB_OK)
-            ipc_send((thread_id)msg.target, &msg);
+            ipc_send_msg((thread_id)msg.target, &msg);
 
         syscall_irq_check_timeouts();
 
