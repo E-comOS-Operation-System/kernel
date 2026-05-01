@@ -114,6 +114,7 @@ my $config = {
             'src/sched/sched.c',         # Task scheduler implementation
             'src/printkit/print.c',      # Printing and output utilities
             'src/time/time.c',           # Time management and timers
+	    'src/kernel/proc.c',	 # System process management
             'arch/x86_64/cpu/gdt.c',     # Global Descriptor Table management
             'arch/x86_64/interrupts/idt.c', # Interrupt Descriptor Table
             'arch/x86_64/interrupts/isr.c', # ISR handler implementations

@@ -54,10 +54,10 @@ void kernel_main(void* boot_info) {
     print_str("Creating init service...\n", 0x1F);
     int result = load_init_service_to_user_mode();
     if (result < 0) {
-	kernel_panic("Failed to load init-service for system init , kernel abort");
+		kernel_panic("Failed to load init-service for system init , kernel abort");
     }
 
-    print_str("init-service is backed from user mode , abort");
+    print_str("init-service is backed from user mode", 0x0F);
     
     print_str("Kernel ready.\n", 0x2F);
 
@@ -75,7 +75,7 @@ void kernel_main(void* boot_info) {
 
         ipc_message_t msg = {0};   /* zero-initialise to avoid garbage (F-11) */
         if (ipc_receive_msg(&msg, 0) == ECLIB_OK)
-            ipc_send_msg((thread_id)msg.target, &msg);
+            ipc_send((thread_id)msg.target, &msg);
 
         syscall_irq_check_timeouts();
 

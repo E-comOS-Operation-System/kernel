@@ -17,11 +17,11 @@ int ipc_receive(ipc_message_t *msg) {
     return 0;
 }
 
-int ipc_send_msg(int msg_type, int flags, thread_id receiver_pid, 
-                 size_t data_len, void* data) {
+int ipc_send_msg(uint32_t type, uint32_t flags, uint32_t receiver_pid,
+               uint32_t data_len, const void *data) {
     ipc_message_t msg = {0};
     
-    msg.type = msg_type;
+    msg.type = type;
     msg.target = receiver_pid;
     msg.size = (uint32_t)data_len;
     

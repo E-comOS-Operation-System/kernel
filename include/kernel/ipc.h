@@ -42,7 +42,7 @@ typedef struct ipc_message {
 } ipc_message_t;
 
 /* Low-level kernel IPC */
-int ipc_send(thread_id target, ipc_message *msg);
+int ipc_send(thread_id target, ipc_message_t *msg);
 int ipc_receive(ipc_message_t *msg);
 
 /* Higher-level helpers */
